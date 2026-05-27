@@ -1,0 +1,51 @@
+import { create } from 'zustand';
+import type { KlineData, IndicatorData, Signal, Period } from '../types';
+import { fetchAnalysis } from '../api/analysis';
+
+interface AnalysisState {
+  klineData: (KlineData & Partial<IndicatorData>)[];
+  signals: Signal[];
+  period: Period;
+  loading: boolean;
+  error: string | null;
+  showMA: boolean;
+  showMACD: boolean;
+  showKDJ: boolean;
+  showRSI: boolean;
+  setPeriod: (period: Period) => void;
+  setShowMA: (show: boolean) => void;
+  setShowMACD: (show: boolean) => void;
+  setShowKDJ: (show: boolean) => void;
+  setShowRSI: (show: boolean) => void;
+  loadAnalysis: (code: string, forceRefresh?: boolean) => Promise<void>;
+}
+
+export const useAnalysisStore = create<AnalysisState>((set, get) => ({
+  klineData: [],
+  signals: [],
+  period: 'daily',
+  loading: false,
+  error: null,
+  showMA: true,
+  showMACD: false,
+  showKDJ: false,
+  showRSI: false,
+
+  setPeriod: (period) => set({ period }),
+  setShowMA: (show) => set({ showMA: show }),
+  setShowMACD: (show) => set({ showMACD: show }),
+  setShowKDJ: (show) => set({ showKDJ: show }),
+  setShowRSI: (show) => set({ showRSI: show }),
+
+  loadAnalysis: async (code, _forceRefresh = false) => {
+    set({ loading: true, error: null });
+    try {
+      const { period } = get();
+      const resp = await fetchAnalysis(code, period, 'MACD,MA,KDJ,RSI');
+      set({ klineData: resp.kline, signals: resp.signals, loading: false });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to load analysis';
+      set({ error: msg, loading: false });
+    }
+  },
+}));
