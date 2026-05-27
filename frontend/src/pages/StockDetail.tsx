@@ -147,6 +147,10 @@ export default function StockDetail() {
             <SignalPanel
               signals={signals}
               onSignalClick={(pos) => setHighlightPosition(pos)}
+              showMA={showMA}
+              showMACD={showMACD}
+              showKDJ={showKDJ}
+              showRSI={showRSI}
             />
           </Card>
         </Col>

@@ -160,6 +160,16 @@ export default function KlineChart({
       },
     });
 
+    const indicatorEnabled = (s: Signal): boolean => {
+      const ind = s.indicator;
+      if (ind === 'MA' || ind === 'PRICE') return showMA;
+      if (ind === 'MACD') return showMACD;
+      if (ind === 'KDJ') return showKDJ;
+      if (ind === 'RSI') return showRSI;
+      if (ind === 'VOL') return true;
+      return true;
+    };
+
     if (showSignals && signals.length > 0) {
       const bullByPos = new Map<number, Signal[]>();
       const bearByPos = new Map<number, Signal[]>();
@@ -167,6 +177,7 @@ export default function KlineChart({
       for (const s of signals) {
         const pos = s.position;
         if (pos == null || pos < 0 || pos >= klineData.length) continue;
+        if (!indicatorEnabled(s)) continue;
         const lvl = inferLevel(s);
         const map = lvl === 'bullish' ? bullByPos : lvl === 'bearish' ? bearByPos : neutByPos;
         if (!map.has(pos)) map.set(pos, []);

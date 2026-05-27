@@ -6,6 +6,10 @@ import type { Signal, SignalCategory, SignalLevel } from '../types';
 interface Props {
   signals: Signal[];
   onSignalClick?: (position: number) => void;
+  showMA?: boolean;
+  showMACD?: boolean;
+  showKDJ?: boolean;
+  showRSI?: boolean;
 }
 
 const CATEGORY_META: Record<SignalCategory, { label: string; color: string; desc: string }> = {
@@ -15,10 +19,10 @@ const CATEGORY_META: Record<SignalCategory, { label: string; color: string; desc
   volume: { label: '量能', color: 'gold', desc: '成交量异常（放量、缩量）' },
 };
 
-const LEVEL_META: Record<SignalLevel, { label: string; color: string }> = {
-  bullish: { label: '看多', color: 'red' },
-  bearish: { label: '看空', color: 'green' },
-  neutral: { label: '中性', color: 'default' },
+const LEVEL_COLOR: Record<SignalLevel, string> = {
+  bullish: '#ef5350',
+  bearish: '#26a69a',
+  neutral: '#faad14',
 };
 
 const CATEGORY_ORDER: SignalCategory[] = ['trend', 'momentum', 'reversal', 'volume'];
@@ -51,6 +55,22 @@ function inferLevel(s: Signal): SignalLevel {
   return 'neutral';
 }
 
+function indicatorEnabled(
+  s: Signal,
+  showMA: boolean,
+  showMACD: boolean,
+  showKDJ: boolean,
+  showRSI: boolean,
+): boolean {
+  const ind = s.indicator;
+  if (ind === 'MA' || ind === 'PRICE') return showMA;
+  if (ind === 'MACD') return showMACD;
+  if (ind === 'KDJ') return showKDJ;
+  if (ind === 'RSI') return showRSI;
+  if (ind === 'VOL') return true;
+  return true;
+}
+
 function SignalDetail({ signal }: { signal: Signal }) {
   return (
     <div style={{ maxWidth: 320 }}>
@@ -68,33 +88,69 @@ function SignalDetail({ signal }: { signal: Signal }) {
   );
 }
 
-export default function SignalPanel({ signals, onSignalClick }: Props) {
+export default function SignalPanel({
+  signals,
+  onSignalClick,
+  showMA = true,
+  showMACD = true,
+  showKDJ = true,
+  showRSI = true,
+}: Props) {
   const grouped = useMemo(() => {
     const map = new Map<SignalCategory, Signal[]>();
-    const recent = [...signals].slice(-60).reverse();
-    for (const s of recent) {
+    const filtered = signals.filter((s) => indicatorEnabled(s, showMA, showMACD, showKDJ, showRSI));
+    const sorted = [...filtered].sort((a, b) => (b.position ?? 0) - (a.position ?? 0));
+    for (const s of sorted) {
       const cat = inferCategory(s);
       if (!map.has(cat)) map.set(cat, []);
       map.get(cat)!.push(s);
     }
     return map;
-  }, [signals]);
+  }, [signals, showMA, showMACD, showKDJ, showRSI]);
+
+  const totalShown = Array.from(grouped.values()).reduce((sum, list) => sum + list.length, 0);
 
   if (signals.length === 0) {
     return <Empty description="暂无识别到的技术信号" image={Empty.PRESENTED_IMAGE_SIMPLE} />;
+  }
+  if (totalShown === 0) {
+    return (
+      <Empty
+        description="勾选 MA / MACD / KDJ / RSI 后将在此显示对应信号"
+        image={Empty.PRESENTED_IMAGE_SIMPLE}
+      />
+    );
   }
 
   const items = CATEGORY_ORDER.filter((c) => grouped.has(c)).map((cat) => {
     const list = grouped.get(cat)!;
     const meta = CATEGORY_META[cat];
+    const bull = list.filter((s) => inferLevel(s) === 'bullish').length;
+    const bear = list.filter((s) => inferLevel(s) === 'bearish').length;
+    const neut = list.length - bull - bear;
     return {
       key: cat,
       label: (
-        <Space size={6}>
+        <Space size={6} wrap>
           <Tag color={meta.color} style={{ marginRight: 0 }}>{meta.label}</Tag>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             {list.length} 条
           </Typography.Text>
+          {bull > 0 && (
+            <Typography.Text style={{ fontSize: 12, color: LEVEL_COLOR.bullish }}>
+              ↑{bull}
+            </Typography.Text>
+          )}
+          {bear > 0 && (
+            <Typography.Text style={{ fontSize: 12, color: LEVEL_COLOR.bearish }}>
+              ↓{bear}
+            </Typography.Text>
+          )}
+          {neut > 0 && (
+            <Typography.Text style={{ fontSize: 12, color: LEVEL_COLOR.neutral }}>
+              ·{neut}
+            </Typography.Text>
+          )}
           <Tooltip title={meta.desc}>
             <InfoCircleOutlined style={{ color: '#999' }} />
           </Tooltip>
@@ -105,17 +161,33 @@ export default function SignalPanel({ signals, onSignalClick }: Props) {
           size="small"
           dataSource={list}
           renderItem={(s) => {
-            const level = LEVEL_META[inferLevel(s)];
+            const lvl = inferLevel(s);
+            const color = LEVEL_COLOR[lvl];
             return (
               <List.Item
                 style={{ cursor: onSignalClick ? 'pointer' : 'default', padding: '6px 0' }}
                 onClick={() => onSignalClick?.(s.position ?? 0)}
               >
                 <div style={{ width: '100%' }}>
-                  <Space size={4} wrap>
-                    <Tag color={level.color} style={{ marginRight: 0 }}>{level.label}</Tag>
-                    <Tag style={{ marginRight: 0 }}>{s.indicator}</Tag>
-                    <Typography.Text strong>{s.name || s.description}</Typography.Text>
+                  <Space size={6} align="center" wrap>
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        width: 7,
+                        height: 7,
+                        borderRadius: '50%',
+                        backgroundColor: color,
+                      }}
+                    />
+                    <Typography.Text style={{ fontSize: 12, color: '#888' }}>
+                      {s.date}
+                    </Typography.Text>
+                    <Typography.Text strong style={{ color }}>
+                      {s.name || s.type}
+                    </Typography.Text>
+                    <Tag style={{ marginRight: 0, fontSize: 11, lineHeight: '16px' }}>
+                      {s.indicator}
+                    </Tag>
                     <Popover
                       content={<SignalDetail signal={s} />}
                       title={s.name || s.type}
@@ -127,9 +199,9 @@ export default function SignalPanel({ signals, onSignalClick }: Props) {
                       />
                     </Popover>
                   </Space>
-                  <div>
+                  <div style={{ marginLeft: 13 }}>
                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                      {s.date} · {s.description}
+                      {s.description}
                     </Typography.Text>
                   </div>
                 </div>
