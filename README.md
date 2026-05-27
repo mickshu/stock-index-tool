@@ -1,113 +1,111 @@
-# Stock Analysis Tool
+# 股票分析工具
 
-A personal-use A-share stock analysis web tool. FastAPI backend computes
-technical indicators (MA / MACD / KDJ / RSI) and detects trading signals
-(golden/death crosses, overbought/oversold). React + TypeScript frontend
-renders interactive K-line charts with ECharts.
+一个个人使用的 A 股分析 Web 工具。后端使用 FastAPI 计算技术指标
+（MA / MACD / KDJ / RSI）并检测交易信号（金叉/死叉、超买/超卖）。
+前端使用 React + TypeScript，通过 ECharts 渲染交互式 K 线图。
 
-## Architecture
+## 项目结构
 
 ```
 stock-index-tool/
-├── backend/                FastAPI app
-│   ├── api/                REST endpoints (market, analysis, stocks, datasource)
-│   ├── services/           Indicator registry + signal engine
-│   ├── data_sources/       Pluggable adapters (akshare, tushare)
-│   ├── models/             SQLAlchemy ORM models
-│   ├── database.py         Engine + session factory
-│   ├── config.py           pydantic-settings configuration
-│   └── main.py             App entry, router registration, CORS
+├── backend/                FastAPI 应用
+│   ├── api/                REST 接口（market、analysis、stocks、datasource）
+│   ├── services/           指标注册表 + 信号引擎
+│   ├── data_sources/       可插拔数据源适配器（akshare、tushare）
+│   ├── models/             SQLAlchemy ORM 模型
+│   ├── database.py         数据库引擎 + 会话工厂
+│   ├── config.py           基于 pydantic-settings 的配置
+│   └── main.py             应用入口、路由注册、CORS
 ├── frontend/               Vite + React + TS + Antd 6 + ECharts 6
 │   └── src/
-│       ├── api/            Axios clients per resource
-│       ├── components/     AppLayout, KlineChart, SignalPanel
-│       ├── pages/          Dashboard, Watchlist, StockDetail, Screener, Settings
-│       └── store/          Zustand analysis store
-├── data/                   SQLite database file (auto-created)
-└── docs/                   Design specs and implementation plans
+│       ├── api/            按资源划分的 Axios 客户端
+│       ├── components/     AppLayout、KlineChart、SignalPanel
+│       ├── pages/          Dashboard、Watchlist、StockDetail、Screener、Settings
+│       └── store/          Zustand 分析状态管理
+├── data/                   SQLite 数据库文件（自动创建）
+└── docs/                   设计规范与实现计划
 ```
 
-### Patterns
+### 设计模式
 
-- **Adapter pattern** — `data_sources/base.py` defines the abstract source;
-  `akshare_source.py` and `tushare_source.py` provide concrete impls.
-- **Strategy / registry pattern** — `services/indicator.py` exposes
-  `INDICATOR_REGISTRY` keyed by name; each indicator class returns a DataFrame
-  of computed columns.
-- **Cache-aside** — `kline_cache` table stores recent K-line frames with TTL
-  (1 day for daily, 5 min for intraday).
+- **适配器模式** — `data_sources/base.py` 定义抽象数据源；
+  `akshare_source.py` 与 `tushare_source.py` 提供具体实现。
+- **策略 / 注册表模式** — `services/indicator.py` 暴露按名称索引的
+  `INDICATOR_REGISTRY`；每个指标类返回包含计算结果列的 DataFrame。
+- **缓存旁路（Cache-aside）** — `kline_cache` 表存储最近的 K 线数据，
+  并设置 TTL（日线 1 天、分时 5 分钟）。
 
-## Backend
+## 后端
 
-### Requirements
+### 环境要求
 - Python 3.11+
-- See `backend/requirements.txt`
+- 依赖见 `backend/requirements.txt`
 
-### Setup
+### 安装
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -r backend/requirements.txt
 ```
 
-### Run
+### 运行
 ```bash
 uvicorn backend.main:app --reload --port 8000
 ```
 
-Open <http://localhost:8000/docs> for Swagger UI.
+打开 <http://localhost:8000/docs> 查看 Swagger UI。
 
-### Tests
+### 测试
 ```bash
 python -m pytest backend/test_services.py -v
 ```
 
-### Key endpoints
+### 主要接口
 
-| Method | Path | Notes |
+| 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/health` | Liveness probe |
-| GET | `/api/v1/market/kline?code=&period=&start=&end=` | Cached K-line |
-| GET | `/api/v1/market/indices` | Market overview |
-| GET | `/api/v1/analysis/indicators?code=&period=&indicators=MACD,MA,KDJ,RSI` | K-line + indicators + signals |
-| GET | `/api/v1/analysis/signals?code=&period=` | Detected signals only |
-| GET | `/api/v1/analysis/available-indicators` | Registered indicator names |
-| GET / POST | `/api/v1/stocks` | Watchlist list / add |
-| DELETE | `/api/v1/stocks/{id}` | Remove from watchlist |
-| GET | `/api/v1/stocks/search?q=` | Keyword search |
-| GET | `/api/v1/data-sources` | Active + available data sources |
-| POST | `/api/v1/data-sources/switch?source=` | Switch active source |
+| GET | `/api/health` | 健康检查 |
+| GET | `/api/v1/market/kline?code=&period=&start=&end=` | 带缓存的 K 线数据 |
+| GET | `/api/v1/market/indices` | 市场概览 |
+| GET | `/api/v1/analysis/indicators?code=&period=&indicators=MACD,MA,KDJ,RSI` | K 线 + 指标 + 信号 |
+| GET | `/api/v1/analysis/signals?code=&period=` | 仅返回检测到的信号 |
+| GET | `/api/v1/analysis/available-indicators` | 已注册的指标名称 |
+| GET / POST | `/api/v1/stocks` | 自选股列表 / 添加 |
+| DELETE | `/api/v1/stocks/{id}` | 从自选股移除 |
+| GET | `/api/v1/stocks/search?q=` | 关键字搜索 |
+| GET | `/api/v1/data-sources` | 当前激活及可用数据源 |
+| POST | `/api/v1/data-sources/switch?source=` | 切换激活数据源 |
 
-## Frontend
+## 前端
 
-### Setup
+### 安装
 ```bash
 cd frontend
 npm install
 ```
 
-### Run
+### 运行
 ```bash
 npm run dev
 ```
 
-Open <http://localhost:5173>. Vite proxies `/api/*` to
-`http://localhost:8000` (see `frontend/vite.config.ts`).
+打开 <http://localhost:5173>。Vite 会将 `/api/*` 代理到
+`http://localhost:8000`（见 `frontend/vite.config.ts`）。
 
-### Type check
+### 类型检查
 ```bash
 npx tsc --noEmit
 ```
 
-### Pages
+### 页面
 
-- **Dashboard** — index cards (Statistic) for market overview
-- **Watchlist** — table of watched stocks; search + add modal; analyze / delete actions
-- **StockDetail** — K-line + MA / MACD / KDJ / RSI subpanels (toggleable) and signal sidebar
-- **Screener** — placeholder for future filtered scans
-- **Settings** — data source switcher
+- **Dashboard** — 使用 Statistic 卡片展示指数行情概览
+- **Watchlist** — 自选股表格；搜索 + 添加弹窗；分析 / 删除操作
+- **StockDetail** — K 线 + MA / MACD / KDJ / RSI 子图（可切换）以及信号侧边栏
+- **Screener** — 后续筛选扫描功能的占位页
+- **Settings** — 数据源切换
 
-## Data flow
+## 数据流
 
 ```
 akshare/tushare  →  data_sources.*  →  kline_cache (SQLite)
@@ -119,16 +117,15 @@ akshare/tushare  →  data_sources.*  →  kline_cache (SQLite)
                            React (analysisStore → KlineChart + SignalPanel)
 ```
 
-## Notes
+## 备注
 
-- The `ta` library is used for indicator math. `ta.momentum.stoch` returns
-  the K series; `stoch_signal` returns D. J is derived as `3K - 2D`.
-- Indicator and signal computations operate on full-history DataFrames in
-  memory; this is acceptable for a personal tool but would need to move to
-  a column store for multi-tenant or large-universe use.
-- SQLite was chosen for zero-config local persistence. Replace by editing
-  `DATABASE_URL` in `.env` or `backend/config.py`.
+- 指标计算使用 `ta` 库。`ta.momentum.stoch` 返回 K 序列；
+  `stoch_signal` 返回 D。J 由 `3K - 2D` 计算得出。
+- 指标与信号在完整历史 DataFrame 上做内存计算；个人工具足够使用，
+  但若用于多租户或大规模股票池场景，需要迁移到列式存储。
+- 选用 SQLite 是为了零配置的本地持久化。如需更换，请修改 `.env`
+  或 `backend/config.py` 中的 `DATABASE_URL`。
 
-## License
+## 许可证
 
-See `LICENSE`.
+见 `LICENSE`。
