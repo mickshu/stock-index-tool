@@ -41,8 +41,12 @@ class AkshareDataSource(BaseDataSource):
     def get_kline(self, code: str, period: str, start_date: str, end_date: str) -> pd.DataFrame:
         try:
             freq = PERIOD_MAP.get(period, "daily")
-            df = ak.stock_zh_a_hist(symbol=code, period=freq, start_date=start_date, end_date=end_date, adjust="qfq")
+            # akshare 要求 YYYYMMDD 格式，调用方传入的是 ISO YYYY-MM-DD
+            ak_start = start_date.replace("-", "")
+            ak_end = end_date.replace("-", "")
+            df = ak.stock_zh_a_hist(symbol=code, period=freq, start_date=ak_start, end_date=ak_end, adjust="qfq")
             if df is None or df.empty:
+                logger.warning("akshare get_kline empty for code=%s period=%s %s~%s", code, period, ak_start, ak_end)
                 return pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])
             df = df.rename(columns={
                 "日期": "date", "开盘": "open", "最高": "high",
@@ -52,6 +56,7 @@ class AkshareDataSource(BaseDataSource):
             df["date"] = pd.to_datetime(df["date"]).dt.date
             return df[[c for c in cols if c in df.columns]]
         except Exception:
+            logger.exception("akshare get_kline failed for code=%s period=%s", code, period)
             return pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])
 
     def get_realtime_quote(self, code: str) -> dict:
