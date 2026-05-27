@@ -12,11 +12,15 @@ interface AnalysisState {
   showMACD: boolean;
   showKDJ: boolean;
   showRSI: boolean;
+  showSignals: boolean;
+  highlightPosition: number | null;
   setPeriod: (period: Period) => void;
   setShowMA: (show: boolean) => void;
   setShowMACD: (show: boolean) => void;
   setShowKDJ: (show: boolean) => void;
   setShowRSI: (show: boolean) => void;
+  setShowSignals: (show: boolean) => void;
+  setHighlightPosition: (pos: number | null) => void;
   loadAnalysis: (code: string, forceRefresh?: boolean) => Promise<void>;
 }
 
@@ -30,12 +34,16 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => ({
   showMACD: false,
   showKDJ: false,
   showRSI: false,
+  showSignals: true,
+  highlightPosition: null,
 
   setPeriod: (period) => set({ period }),
   setShowMA: (show) => set({ showMA: show }),
   setShowMACD: (show) => set({ showMACD: show }),
   setShowKDJ: (show) => set({ showKDJ: show }),
   setShowRSI: (show) => set({ showRSI: show }),
+  setShowSignals: (show) => set({ showSignals: show }),
+  setHighlightPosition: (pos) => set({ highlightPosition: pos }),
 
   loadAnalysis: async (code, forceRefresh = false) => {
     set({ loading: true, error: null });

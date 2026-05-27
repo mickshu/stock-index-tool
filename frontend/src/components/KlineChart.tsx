@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import * as echarts from 'echarts';
-import type { KlineData, IndicatorData } from '../types';
+import type { KlineData, IndicatorData, Signal, SignalLevel } from '../types';
 
 interface Props {
   klineData: (KlineData & Partial<IndicatorData>)[];
@@ -9,11 +9,40 @@ interface Props {
   showMACD?: boolean;
   showKDJ?: boolean;
   showRSI?: boolean;
+  signals?: Signal[];
+  showSignals?: boolean;
+  highlightPosition?: number | null;
 }
 
 interface GridSpec {
   id: string;
   type: 'price' | 'volume' | 'macd' | 'kdj' | 'rsi';
+}
+
+function inferLevel(s: Signal): SignalLevel {
+  if (s.level) return s.level;
+  if (
+    s.type.includes('golden') ||
+    s.type.includes('oversold') ||
+    s.type.includes('breakout') ||
+    s.type.includes('bull')
+  ) {
+    return 'bullish';
+  }
+  if (
+    s.type.includes('death') ||
+    s.type.includes('overbought') ||
+    s.type.includes('breakdown') ||
+    s.type.includes('bear')
+  ) {
+    return 'bearish';
+  }
+  return 'neutral';
+}
+
+interface MarkerPoint {
+  value: [string, number];
+  sigs: Signal[];
 }
 
 export default function KlineChart({
@@ -23,6 +52,9 @@ export default function KlineChart({
   showMACD = false,
   showKDJ = false,
   showRSI = false,
+  signals = [],
+  showSignals = true,
+  highlightPosition = null,
 }: Props) {
   const chartRef = useRef<HTMLDivElement>(null);
   const instanceRef = useRef<echarts.ECharts | null>(null);
@@ -128,6 +160,139 @@ export default function KlineChart({
       },
     });
 
+    if (showSignals && signals.length > 0) {
+      const bullByPos = new Map<number, Signal[]>();
+      const bearByPos = new Map<number, Signal[]>();
+      const neutByPos = new Map<number, Signal[]>();
+      for (const s of signals) {
+        const pos = s.position;
+        if (pos == null || pos < 0 || pos >= klineData.length) continue;
+        const lvl = inferLevel(s);
+        const map = lvl === 'bullish' ? bullByPos : lvl === 'bearish' ? bearByPos : neutByPos;
+        if (!map.has(pos)) map.set(pos, []);
+        map.get(pos)!.push(s);
+      }
+
+      const buildPoints = (
+        m: Map<number, Signal[]>,
+        anchor: 'low' | 'high' | 'volume',
+      ): MarkerPoint[] =>
+        Array.from(m.entries()).map(([pos, sigs]) => {
+          const d = klineData[pos];
+          const y = anchor === 'low' ? d.low : anchor === 'high' ? d.high : d.volume;
+          return { value: [d.date, y], sigs };
+        });
+
+      const tooltipFormatter = (p: { data: MarkerPoint }) => {
+        const sigs = p.data.sigs;
+        const lines = sigs
+          .map((s) => {
+            const lvl = inferLevel(s);
+            const dot =
+              lvl === 'bullish'
+                ? '<span style="color:#ef5350">●</span>'
+                : lvl === 'bearish'
+                  ? '<span style="color:#26a69a">●</span>'
+                  : '<span style="color:#faad14">●</span>';
+            return `${dot} <b>${s.name || s.type}</b> <span style="color:#999">[${s.indicator}]</span><br/><span style="color:#666;margin-left:14px">${s.description}</span>`;
+          })
+          .join('<br/>');
+        return `<b>${p.data.value[0]}</b><br/>${lines}`;
+      };
+
+      const labelFormatter = (p: { data: MarkerPoint }) =>
+        p.data.sigs.length > 1 ? String(p.data.sigs.length) : '';
+
+      const bullData = buildPoints(bullByPos, 'low');
+      const bearData = buildPoints(bearByPos, 'high');
+      const neutData = buildPoints(neutByPos, 'volume');
+
+      if (bullData.length > 0) {
+        series.push({
+          type: 'scatter',
+          name: '看多信号',
+          data: bullData,
+          xAxisIndex: 0,
+          yAxisIndex: 0,
+          symbol: 'triangle',
+          symbolSize: 11,
+          symbolOffset: [0, 14],
+          itemStyle: { color: '#ef5350', borderColor: '#fff', borderWidth: 1 },
+          label: {
+            show: true,
+            position: 'bottom',
+            distance: 2,
+            fontSize: 10,
+            color: '#ef5350',
+            formatter: labelFormatter,
+          },
+          tooltip: { trigger: 'item', formatter: tooltipFormatter },
+          z: 10,
+        });
+      }
+      if (bearData.length > 0) {
+        series.push({
+          type: 'scatter',
+          name: '看空信号',
+          data: bearData,
+          xAxisIndex: 0,
+          yAxisIndex: 0,
+          symbol: 'triangle',
+          symbolRotate: 180,
+          symbolSize: 11,
+          symbolOffset: [0, -14],
+          itemStyle: { color: '#26a69a', borderColor: '#fff', borderWidth: 1 },
+          label: {
+            show: true,
+            position: 'top',
+            distance: 2,
+            fontSize: 10,
+            color: '#26a69a',
+            formatter: labelFormatter,
+          },
+          tooltip: { trigger: 'item', formatter: tooltipFormatter },
+          z: 10,
+        });
+      }
+      if (neutData.length > 0) {
+        series.push({
+          type: 'scatter',
+          name: '量能信号',
+          data: neutData,
+          xAxisIndex: volumeGridIdx,
+          yAxisIndex: volumeGridIdx,
+          symbol: 'circle',
+          symbolSize: 7,
+          itemStyle: { color: '#faad14', borderColor: '#fff', borderWidth: 1 },
+          tooltip: { trigger: 'item', formatter: tooltipFormatter },
+          z: 10,
+        });
+      }
+
+      if (highlightPosition != null && klineData[highlightPosition]) {
+        const d = klineData[highlightPosition];
+        series.push({
+          type: 'scatter',
+          name: '__highlight__',
+          data: [{ value: [d.date, d.high] }],
+          xAxisIndex: 0,
+          yAxisIndex: 0,
+          symbol: 'circle',
+          symbolSize: 24,
+          symbolOffset: [0, -22],
+          itemStyle: {
+            color: 'rgba(22,119,255,0.15)',
+            borderColor: '#1677ff',
+            borderWidth: 2,
+          },
+          tooltip: { show: false },
+          silent: true,
+          z: 11,
+          animationDuration: 600,
+        });
+      }
+    }
+
     const macdGridIdx = grids.findIndex((g) => g.type === 'macd');
     if (showMACD && macdGridIdx >= 0) {
       series.push({
@@ -210,7 +375,7 @@ export default function KlineChart({
       },
       true,
     );
-  }, [klineData, showMA, showMACD, showKDJ, showRSI]);
+  }, [klineData, showMA, showMACD, showKDJ, showRSI, signals, showSignals, highlightPosition]);
 
   useEffect(() => {
     instanceRef.current?.resize();

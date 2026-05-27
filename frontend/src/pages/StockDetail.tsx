@@ -41,11 +41,15 @@ export default function StockDetail() {
     showMACD,
     showKDJ,
     showRSI,
+    showSignals,
+    highlightPosition,
     setPeriod,
     setShowMA,
     setShowMACD,
     setShowKDJ,
     setShowRSI,
+    setShowSignals,
+    setHighlightPosition,
     loadAnalysis,
   } = useAnalysisStore();
 
@@ -115,6 +119,13 @@ export default function StockDetail() {
               >
                 RSI
               </Checkbox>
+              <Checkbox
+                checked={showSignals}
+                onChange={(e) => setShowSignals(e.target.checked)}
+                style={{ marginLeft: 12 }}
+              >
+                信号标注
+              </Checkbox>
             </div>
             <Spin spinning={loading}>
               <KlineChart
@@ -124,13 +135,19 @@ export default function StockDetail() {
                 showMACD={showMACD}
                 showKDJ={showKDJ}
                 showRSI={showRSI}
+                signals={signals}
+                showSignals={showSignals}
+                highlightPosition={highlightPosition}
               />
             </Spin>
           </Card>
         </Col>
         <Col xs={24} lg={6}>
           <Card size="small" title="Signals">
-            <SignalPanel signals={signals} />
+            <SignalPanel
+              signals={signals}
+              onSignalClick={(pos) => setHighlightPosition(pos)}
+            />
           </Card>
         </Col>
       </Row>
