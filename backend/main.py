@@ -10,6 +10,7 @@ from backend.api.market import router as market_router
 from backend.api.analysis import router as analysis_router
 from backend.api.stocks import router as stocks_router
 from backend.api.datasource import router as datasource_router
+from backend.api.screener import router as screener_router
 
 app = FastAPI(title="Stock Analysis Tool", version="0.1.0")
 
@@ -25,6 +26,7 @@ app.include_router(market_router)
 app.include_router(analysis_router)
 app.include_router(stocks_router)
 app.include_router(datasource_router)
+app.include_router(screener_router)
 
 
 @app.on_event("startup")
