@@ -30,12 +30,20 @@ export interface IndicatorData {
   RSI24?: number | null;
 }
 
+export type SignalCategory = 'trend' | 'momentum' | 'reversal' | 'volume';
+export type SignalLevel = 'bullish' | 'bearish' | 'neutral';
+
 export interface Signal {
   type: string;
   indicator: string;
   description: string;
   date: string;
   position?: number;
+  name?: string;
+  category?: SignalCategory;
+  level?: SignalLevel;
+  explanation?: string;
+  caveat?: string;
 }
 
 export interface AnalysisResponse {

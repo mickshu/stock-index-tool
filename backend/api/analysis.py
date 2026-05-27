@@ -9,7 +9,7 @@ from backend.database import get_db
 from backend.models.models import KlineCache
 from backend.data_sources.factory import get_data_source
 from backend.services.indicator import compute_indicators, list_indicators
-from backend.services.signal import SignalEngine
+from backend.services.signal import SignalEngine, get_signal_catalog
 
 router = APIRouter(prefix="/api/v1/analysis", tags=["analysis"])
 
@@ -146,3 +146,9 @@ def get_signals(
 @router.get("/available-indicators")
 def get_available():
     return {"indicators": list_indicators()}
+
+
+@router.get("/signal-catalog")
+def get_catalog():
+    """返回支持的信号类型字典：名称、分类、多空方向、解释、误导说明。"""
+    return {"signals": get_signal_catalog()}
