@@ -152,13 +152,15 @@ class AkshareDataSource(BaseDataSource):
             return {"code": code, "name": "", "price": 0, "change_pct": 0}
 
     def get_index_data(self) -> list[dict]:
-        # 先尝试实时行情接口，失败则回退到日线历史最后一条
+        # 东方财富实时 → Sina 实时 → 日线历史最后一条
         major = [
             ("上证指数", "000001", "sh000001"),
             ("深证成指", "399001", "sz399001"),
             ("创业板指", "399006", "sz399006"),
             ("科创50", "000688", "sh000688"),
         ]
+
+        # 1) 东方财富实时
         frames: list[pd.DataFrame] = []
         for symbol in ("上证系列指数", "深证系列指数"):
             try:
@@ -166,7 +168,7 @@ class AkshareDataSource(BaseDataSource):
                 if df is not None and not df.empty:
                     frames.append(df)
             except Exception:
-                logger.exception("akshare index spot fetch failed for symbol=%r", symbol)
+                logger.exception("akshare index spot (em) fetch failed for symbol=%r", symbol)
 
         if frames:
             merged = pd.concat(frames, ignore_index=True)
@@ -189,7 +191,31 @@ class AkshareDataSource(BaseDataSource):
                 if result:
                     return result
 
-        # 实时行情失败 — 用日线历史作为后备
+        # 2) Sina 实时（避免落到日线导致显示昨日收盘）
+        try:
+            sina = ak.stock_zh_index_spot_sina()
+            if sina is not None and not sina.empty and "名称" in sina.columns:
+                result = []
+                for name, code, _ in major:
+                    row = sina[sina["名称"] == name]
+                    if row.empty:
+                        continue
+                    r = row.iloc[0]
+                    try:
+                        result.append({
+                            "name": name,
+                            "code": code,
+                            "price": float(r["最新价"]),
+                            "change_pct": float(r["涨跌幅"]),
+                        })
+                    except (KeyError, ValueError, TypeError):
+                        logger.exception("sina index row parse failed for %s", name)
+                if result:
+                    return result
+        except Exception:
+            logger.exception("akshare index spot (sina) fetch failed")
+
+        # 3) 日线历史 — 最后兜底（开盘期间可能只有昨日数据）
         result = []
         for name, code, daily_symbol in major:
             try:
