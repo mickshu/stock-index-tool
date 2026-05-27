@@ -62,6 +62,29 @@ class AkshareDataSource(BaseDataSource):
             logger.exception("akshare daily fallback failed for code=%s", code)
             return pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])
 
+    @staticmethod
+    def _resample_ohlcv(daily_df: pd.DataFrame, rule: str) -> pd.DataFrame:
+        """把日线 OHLCV resample 成周/月线"""
+        if daily_df is None or daily_df.empty:
+            return pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])
+        df = daily_df.copy()
+        df["date"] = pd.to_datetime(df["date"])
+        df = df.set_index("date").sort_index()
+        agg = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
+        out = df.resample(rule).agg(agg).dropna(subset=["close"]).reset_index()
+        out["date"] = out["date"].dt.date
+        return out[["date", "open", "high", "low", "close", "volume"]]
+
+    def _get_kline_resampled_fallback(self, code: str, period: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """周/月线后备：拉日线后 resample"""
+        rule = {"weekly": "W-FRI", "monthly": "MS"}.get(period)
+        if rule is None:
+            return pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])
+        daily = self._get_kline_daily_fallback(code, start_date, end_date)
+        if daily.empty:
+            return daily
+        return self._resample_ohlcv(daily, rule)
+
     def get_kline(self, code: str, period: str, start_date: str, end_date: str) -> pd.DataFrame:
         try:
             freq = PERIOD_MAP.get(period, "daily")
@@ -73,6 +96,8 @@ class AkshareDataSource(BaseDataSource):
                 logger.warning("akshare get_kline empty for code=%s period=%s %s~%s", code, period, ak_start, ak_end)
                 if period == "daily":
                     return self._get_kline_daily_fallback(code, start_date, end_date)
+                if period in ("weekly", "monthly"):
+                    return self._get_kline_resampled_fallback(code, period, start_date, end_date)
                 return pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])
             df = df.rename(columns={
                 "日期": "date", "开盘": "open", "最高": "high",
@@ -85,6 +110,8 @@ class AkshareDataSource(BaseDataSource):
             logger.exception("akshare get_kline failed for code=%s period=%s", code, period)
             if period == "daily":
                 return self._get_kline_daily_fallback(code, start_date, end_date)
+            if period in ("weekly", "monthly"):
+                return self._get_kline_resampled_fallback(code, period, start_date, end_date)
             return pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])
 
     def get_realtime_quote(self, code: str) -> dict:

@@ -46,7 +46,7 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => ({
     } catch (e) {
       const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
       const msg = detail || (e instanceof Error ? e.message : 'Failed to load analysis');
-      set({ error: msg, loading: false });
+      set({ error: msg, loading: false, klineData: [], signals: [] });
     }
   },
 }));

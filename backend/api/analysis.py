@@ -14,6 +14,18 @@ from backend.services.signal import SignalEngine
 router = APIRouter(prefix="/api/v1/analysis", tags=["analysis"])
 
 
+def _default_lookback_days(period: str) -> int:
+    # 保证周/月线也有足够样本计算 MA60、MACD(慢线 26)
+    return {
+        "daily": 365,
+        "weekly": 5 * 365,
+        "monthly": 10 * 365,
+        "60min": 90,
+        "30min": 60,
+        "15min": 45,
+    }.get(period, 365)
+
+
 def _load_kline_df(db: Session, code: str, period: str, start: str, end: str) -> pd.DataFrame:
     stmt = select(KlineCache).where(
         and_(KlineCache.code == code, KlineCache.period == period,
@@ -64,7 +76,7 @@ def get_indicators(
     force_refresh: bool = Query(False),
 ):
     if start is None:
-        start = (date.today() - timedelta(days=365)).isoformat()
+        start = (date.today() - timedelta(days=_default_lookback_days(period))).isoformat()
     if end is None:
         end = date.today().isoformat()
 
@@ -117,7 +129,7 @@ def get_signals(
     end: str | None = Query(None),
 ):
     if start is None:
-        start = (date.today() - timedelta(days=365)).isoformat()
+        start = (date.today() - timedelta(days=_default_lookback_days(period))).isoformat()
     if end is None:
         end = date.today().isoformat()
 
