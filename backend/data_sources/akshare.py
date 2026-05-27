@@ -1,21 +1,41 @@
+import logging
 import pandas as pd
 import akshare as ak
 from backend.data_sources.base import BaseDataSource, PERIOD_MAP
+
+logger = logging.getLogger(__name__)
 
 
 class AkshareDataSource(BaseDataSource):
     name = "akshare"
 
     def search_stocks(self, keyword: str) -> list[dict]:
+        kw = (keyword or "").strip()
+        if not kw:
+            return []
         try:
             df = ak.stock_info_a_code_name()
-            mask = df["名称"].str.contains(keyword) if "名称" in df.columns else df["name"].str.contains(keyword)
+            if "名称" in df.columns:
+                code_col, name_col = "代码", "名称"
+            else:
+                code_col, name_col = "code", "name"
+            code_series = df[code_col].astype(str)
+            name_series = df[name_col].astype(str)
+            mask = (
+                name_series.str.contains(kw, na=False, regex=False)
+                | code_series.str.contains(kw, na=False, regex=False)
+            )
             results = df[mask].head(20)
             return [
-                {"code": str(row.iloc[0]).zfill(6), "name": str(row.iloc[1]), "market": "A"}
-                for row in results.itertuples(index=False)
+                {
+                    "code": str(row[code_col]).zfill(6),
+                    "name": str(row[name_col]),
+                    "market": "A",
+                }
+                for _, row in results.iterrows()
             ]
         except Exception:
+            logger.exception("akshare search_stocks failed for keyword=%r", kw)
             return []
 
     def get_kline(self, code: str, period: str, start_date: str, end_date: str) -> pd.DataFrame:
@@ -51,19 +71,43 @@ class AkshareDataSource(BaseDataSource):
             return {"code": code, "name": "", "price": 0, "change_pct": 0}
 
     def get_index_data(self) -> list[dict]:
-        try:
-            df = ak.stock_zh_index_spot_em()
-            major = {"上证指数": "000001", "深证成指": "399001", "创业板指": "399006"}
-            result = []
-            for name, code in major.items():
-                row = df[df["名称"] == name] if "名称" in df.columns else None
-                if row is not None and not row.empty:
-                    r = row.iloc[0]
-                    result.append({
-                        "name": name, "code": code,
-                        "price": float(r["最新价"]),
-                        "change_pct": float(r["涨跌幅"]),
-                    })
-            return result
-        except Exception:
+        # 上证系列（含上证指数、科创50）与深证系列（含深证成指、创业板指）
+        # 通过 stock_zh_index_spot_em 的不同 symbol 分别获取，再合并查找。
+        major = [
+            ("上证指数", "000001"),
+            ("深证成指", "399001"),
+            ("创业板指", "399006"),
+            ("科创50", "000688"),
+        ]
+        frames: list[pd.DataFrame] = []
+        for symbol in ("上证系列指数", "深证系列指数"):
+            try:
+                df = ak.stock_zh_index_spot_em(symbol=symbol)
+                if df is not None and not df.empty:
+                    frames.append(df)
+            except Exception:
+                logger.exception("akshare index spot fetch failed for symbol=%r", symbol)
+
+        if not frames:
             return []
+
+        merged = pd.concat(frames, ignore_index=True)
+        if "名称" not in merged.columns:
+            return []
+
+        result: list[dict] = []
+        for name, code in major:
+            row = merged[merged["名称"] == name]
+            if row.empty:
+                continue
+            r = row.iloc[0]
+            try:
+                result.append({
+                    "name": name,
+                    "code": code,
+                    "price": float(r["最新价"]),
+                    "change_pct": float(r["涨跌幅"]),
+                })
+            except (KeyError, ValueError, TypeError):
+                logger.exception("akshare index row parse failed for %s", name)
+        return result

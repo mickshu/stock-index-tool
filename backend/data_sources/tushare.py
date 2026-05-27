@@ -1,6 +1,9 @@
+import logging
 import pandas as pd
 from backend.data_sources.base import BaseDataSource, PERIOD_MAP
 from backend.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class TushareDataSource(BaseDataSource):
@@ -18,15 +21,29 @@ class TushareDataSource(BaseDataSource):
         return self._pro
 
     def search_stocks(self, keyword: str) -> list[dict]:
+        kw = (keyword or "").strip()
+        if not kw:
+            return []
         try:
-            df = self.pro.stock_basic(exchange="", list_status="L", fields="ts_code,name")
-            mask = df["name"].str.contains(keyword)
+            df = self.pro.stock_basic(
+                exchange="", list_status="L", fields="ts_code,symbol,name"
+            )
+            name_series = df["name"].astype(str)
+            symbol_series = (
+                df["symbol"].astype(str) if "symbol" in df.columns
+                else df["ts_code"].astype(str)
+            )
+            mask = (
+                name_series.str.contains(kw, na=False, regex=False)
+                | symbol_series.str.contains(kw, na=False, regex=False)
+            )
             results = df[mask].head(20)
             return [
                 {"code": row["ts_code"].split(".")[0], "name": row["name"], "market": "A"}
                 for _, row in results.iterrows()
             ]
         except Exception:
+            logger.exception("tushare search_stocks failed for keyword=%r", kw)
             return []
 
     def get_kline(self, code: str, period: str, start_date: str, end_date: str) -> pd.DataFrame:

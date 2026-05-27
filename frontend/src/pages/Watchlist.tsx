@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Table,
   Button,
   Modal,
-  Input,
+  AutoComplete,
   Space,
   Popconfirm,
   Typography,
@@ -11,7 +11,7 @@ import {
   List,
   Tag,
 } from 'antd';
-import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
+import { PlusOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import type { StockInfo } from '../types';
 import {
@@ -42,17 +42,45 @@ export default function Watchlist() {
     reload();
   }, []);
 
-  const handleSearch = async () => {
-    if (!keyword.trim()) return;
-    setSearching(true);
-    try {
-      const { results } = await searchStocks(keyword.trim());
-      setSearchResults(results);
-    } catch {
-      message.error('Search failed');
-    } finally {
+  const debounceRef = useRef<number | null>(null);
+  const requestSeqRef = useRef(0);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current != null) window.clearTimeout(debounceRef.current);
+    };
+  }, []);
+
+  const runSearch = (term: string) => {
+    const trimmed = term.trim();
+    if (!trimmed) {
+      setSearchResults([]);
       setSearching(false);
+      return;
     }
+    const seq = ++requestSeqRef.current;
+    setSearching(true);
+    searchStocks(trimmed)
+      .then(({ results }) => {
+        if (seq === requestSeqRef.current) setSearchResults(results);
+      })
+      .catch(() => {
+        if (seq === requestSeqRef.current) message.error('搜索失败');
+      })
+      .finally(() => {
+        if (seq === requestSeqRef.current) setSearching(false);
+      });
+  };
+
+  const handleKeywordChange = (value: string) => {
+    setKeyword(value);
+    if (debounceRef.current != null) window.clearTimeout(debounceRef.current);
+    if (!value.trim()) {
+      setSearchResults([]);
+      setSearching(false);
+      return;
+    }
+    debounceRef.current = window.setTimeout(() => runSearch(value), 250);
   };
 
   const handleAdd = async (stock: StockInfo) => {
@@ -138,22 +166,36 @@ export default function Watchlist() {
         footer={null}
         destroyOnHidden
       >
-        <Space.Compact style={{ width: '100%', marginBottom: 12 }}>
-          <Input
-            placeholder="Enter code or name (e.g. 000001 or 平安)"
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-            onPressEnter={handleSearch}
-          />
-          <Button
-            type="primary"
-            icon={<SearchOutlined />}
-            loading={searching}
-            onClick={handleSearch}
-          >
-            Search
-          </Button>
-        </Space.Compact>
+        <AutoComplete
+          style={{ width: '100%', marginBottom: 12 }}
+          value={keyword}
+          onChange={handleKeywordChange}
+          onSelect={(value) => {
+            const stock = searchResults.find((s) => s.code === value);
+            if (stock) handleAdd(stock);
+          }}
+          placeholder="输入代码或名称，如 000001 或 平安"
+          notFoundContent={
+            searching
+              ? '搜索中…'
+              : keyword.trim()
+              ? '未找到匹配结果'
+              : null
+          }
+          options={searchResults.map((s) => ({
+            value: s.code,
+            label: (
+              <Space>
+                <Tag>{s.code}</Tag>
+                <span>{s.name}</span>
+                {s.market && (
+                  <Typography.Text type="secondary">[{s.market}]</Typography.Text>
+                )}
+              </Space>
+            ),
+          }))}
+          allowClear
+        />
 
         <List
           size="small"
