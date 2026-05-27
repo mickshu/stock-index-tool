@@ -15,6 +15,7 @@ import {
 import { ReloadOutlined } from '@ant-design/icons';
 import KlineChart from '../components/KlineChart';
 import SignalPanel from '../components/SignalPanel';
+import SignalConfluence from '../components/SignalConfluence';
 import { useAnalysisStore } from '../store/analysisStore';
 import { fetchQuote } from '../api/market';
 import type { Period } from '../types';
@@ -90,6 +91,15 @@ export default function StockDetail() {
       </Space>
 
       {error && <Alert type="error" message={error} style={{ marginBottom: 16 }} />}
+
+      <SignalConfluence
+        signals={signals}
+        showMA={showMA}
+        showMACD={showMACD}
+        showKDJ={showKDJ}
+        showRSI={showRSI}
+        onSignalClick={(pos) => setHighlightPosition(pos)}
+      />
 
       <Row gutter={16}>
         <Col xs={24} lg={18}>
