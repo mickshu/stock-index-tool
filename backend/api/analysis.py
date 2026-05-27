@@ -25,7 +25,7 @@ def _load_kline_df(db: Session, code: str, period: str, start: str, end: str) ->
         ds = get_data_source()
         df = ds.get_kline(code, period, start, end)
         if df.empty:
-            raise HTTPException(status_code=404, detail=f"No data for {code}")
+            raise HTTPException(status_code=503, detail=f"Data source unavailable — could not fetch data for {code}")
         for _, row in df.iterrows():
             db.add(KlineCache(
                 code=code, period=period, trade_date=row["date"],
@@ -61,6 +61,7 @@ def get_indicators(
     indicators: str = Query("MACD,MA,KDJ,RSI"),
     start: str | None = Query(None),
     end: str | None = Query(None),
+    force_refresh: bool = Query(False),
 ):
     if start is None:
         start = (date.today() - timedelta(days=365)).isoformat()
@@ -75,6 +76,26 @@ def get_indicators(
 
     db: Session = next(get_db())
     try:
+        if force_refresh:
+            ds = get_data_source()
+            df = ds.get_kline(code, period, start, end)
+            if df.empty:
+                raise HTTPException(status_code=503, detail=f"Data source unavailable — could not fetch data for {code}")
+            for _, row in df.iterrows():
+                existing = db.execute(
+                    select(KlineCache).where(
+                        and_(KlineCache.code == code, KlineCache.period == period,
+                             KlineCache.trade_date == row["date"])
+                    )
+                ).scalar()
+                if existing is None:
+                    db.add(KlineCache(
+                        code=code, period=period, trade_date=row["date"],
+                        open=row["open"], high=row["high"], low=row["low"],
+                        close=row["close"], volume=row["volume"],
+                    ))
+            db.commit()
+
         df = _load_kline_df(db, code, period, start, end)
         df = compute_indicators(df, indicator_list)
         signals = SignalEngine().detect(df)

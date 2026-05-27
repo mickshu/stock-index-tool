@@ -213,6 +213,10 @@ export default function KlineChart({
   }, [klineData, showMA, showMACD, showKDJ, showRSI]);
 
   useEffect(() => {
+    instanceRef.current?.resize();
+  }, [height]);
+
+  useEffect(() => {
     const handleResize = () => instanceRef.current?.resize();
     window.addEventListener('resize', handleResize);
     return () => {

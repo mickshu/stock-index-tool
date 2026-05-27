@@ -23,3 +23,15 @@ export async function fetchIndices(): Promise<IndexData[]> {
   const { data } = await api.get<IndexData[]>('/market/indices');
   return data;
 }
+
+export interface QuoteData {
+  code: string;
+  name: string;
+  price: number;
+  change_pct: number;
+}
+
+export async function fetchQuote(code: string): Promise<QuoteData> {
+  const { data } = await api.get<QuoteData>('/market/quote', { params: { code } });
+  return data;
+}

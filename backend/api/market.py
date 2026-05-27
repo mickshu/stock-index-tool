@@ -58,7 +58,7 @@ def get_kline(
         ds = get_data_source()
         df = ds.get_kline(code, period, start, end)
         if df.empty:
-            raise HTTPException(status_code=404, detail=f"No K-line data for {code}")
+            raise HTTPException(status_code=503, detail=f"Data source unavailable — could not fetch K-line for {code}")
 
         for _, row in df.iterrows():
             existing = db.execute(
@@ -87,3 +87,9 @@ def get_kline(
 def get_indices():
     ds = get_data_source()
     return ds.get_index_data()
+
+
+@router.get("/quote")
+def get_quote(code: str = Query(..., description="Stock code, e.g. 000001")):
+    ds = get_data_source()
+    return ds.get_realtime_quote(code)

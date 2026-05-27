@@ -91,8 +91,9 @@ export default function Watchlist() {
       setKeyword('');
       setSearchResults([]);
       reload();
-    } catch {
-      message.error('Failed to add stock');
+    } catch (e) {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      message.error(detail || 'Failed to add stock');
     }
   };
 
@@ -101,8 +102,9 @@ export default function Watchlist() {
       await deleteStock(id);
       message.success('Removed');
       reload();
-    } catch {
-      message.error('Failed to delete');
+    } catch (e) {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      message.error(detail || 'Failed to delete');
     }
   };
 

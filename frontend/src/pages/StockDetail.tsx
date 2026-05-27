@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Spin,
@@ -16,6 +16,7 @@ import { ReloadOutlined } from '@ant-design/icons';
 import KlineChart from '../components/KlineChart';
 import SignalPanel from '../components/SignalPanel';
 import { useAnalysisStore } from '../store/analysisStore';
+import { fetchQuote } from '../api/market';
 import type { Period } from '../types';
 
 const periodOptions: { label: string; value: Period }[] = [
@@ -29,6 +30,7 @@ const periodOptions: { label: string; value: Period }[] = [
 
 export default function StockDetail() {
   const { code } = useParams<{ code: string }>();
+  const [stockName, setStockName] = useState('');
   const {
     klineData,
     signals,
@@ -51,15 +53,23 @@ export default function StockDetail() {
     if (code) loadAnalysis(code);
   }, [code, period, loadAnalysis]);
 
+  useEffect(() => {
+    if (code) {
+      fetchQuote(code).then((q) => setStockName(q.name || '')).catch(() => setStockName(''));
+    }
+  }, [code]);
+
   if (!code) return <Alert type="error" message="No stock code provided" />;
 
   const chartHeight = 450 + ([showMACD, showKDJ, showRSI].filter(Boolean).length * 110);
+
+  const title = stockName ? `${code} ${stockName}` : code;
 
   return (
     <div>
       <Space style={{ marginBottom: 16 }} wrap>
         <Typography.Title level={4} style={{ margin: 0 }}>
-          {code}
+          {title}
         </Typography.Title>
         <Segmented
           options={periodOptions}

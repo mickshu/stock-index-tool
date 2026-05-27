@@ -37,14 +37,15 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => ({
   setShowKDJ: (show) => set({ showKDJ: show }),
   setShowRSI: (show) => set({ showRSI: show }),
 
-  loadAnalysis: async (code, _forceRefresh = false) => {
+  loadAnalysis: async (code, forceRefresh = false) => {
     set({ loading: true, error: null });
     try {
       const { period } = get();
-      const resp = await fetchAnalysis(code, period, 'MACD,MA,KDJ,RSI');
+      const resp = await fetchAnalysis(code, period, 'MACD,MA,KDJ,RSI', forceRefresh);
       set({ klineData: resp.kline, signals: resp.signals, loading: false });
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Failed to load analysis';
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      const msg = detail || (e instanceof Error ? e.message : 'Failed to load analysis');
       set({ error: msg, loading: false });
     }
   },
