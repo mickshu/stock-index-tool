@@ -3,6 +3,15 @@ from sqlalchemy import Column, Integer, String, Float, Date, DateTime, UniqueCon
 from backend.database import Base
 
 
+class WatchlistGroup(Base):
+    __tablename__ = "watchlist_group"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(50), nullable=False, unique=True)
+    sort_order = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class Watchlist(Base):
     __tablename__ = "watchlist"
 
@@ -10,6 +19,7 @@ class Watchlist(Base):
     code = Column(String(10), nullable=False)
     name = Column(String(50))
     market = Column(String(10), default="A")
+    group_id = Column(Integer, nullable=True)
     added_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (UniqueConstraint("code", "market", name="uq_watchlist_code_market"),)

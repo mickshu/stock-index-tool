@@ -151,6 +151,98 @@ class AkshareDataSource(BaseDataSource):
             logger.exception("Fallback quote lookup failed for %s", code)
             return {"code": code, "name": "", "price": 0, "change_pct": 0}
 
+    def get_fundamentals(self, code: str) -> dict:
+        """组合 stock_individual_info_em + stock_a_indicator_lg + 实时报价。"""
+        result: dict = {
+            "code": code,
+            "name": "",
+            "price": None,
+            "change_pct": None,
+            "pe": None,
+            "pe_ttm": None,
+            "pb": None,
+            "ps_ttm": None,
+            "dv_ttm": None,
+            "total_market_cap": None,
+            "float_market_cap": None,
+            "total_shares": None,
+            "float_shares": None,
+            "industry": "",
+            "listing_date": "",
+            "as_of": None,
+        }
+
+        def _to_float(v) -> float | None:
+            try:
+                if v is None:
+                    return None
+                if isinstance(v, str) and not v.strip():
+                    return None
+                f = float(v)
+                if pd.isna(f):
+                    return None
+                return f
+            except (TypeError, ValueError):
+                return None
+
+        try:
+            info_df = ak.stock_individual_info_em(symbol=code)
+            if info_df is not None and not info_df.empty and {"item", "value"}.issubset(info_df.columns):
+                kv = dict(zip(info_df["item"].astype(str), info_df["value"]))
+                result["industry"] = str(kv.get("行业", "") or "")
+                result["total_market_cap"] = _to_float(kv.get("总市值"))
+                result["float_market_cap"] = _to_float(kv.get("流通市值"))
+                result["total_shares"] = _to_float(kv.get("总股本"))
+                result["float_shares"] = _to_float(kv.get("流通股"))
+                listing = kv.get("上市时间")
+                if listing is not None:
+                    s = str(listing).strip()
+                    if len(s) == 8 and s.isdigit():
+                        result["listing_date"] = f"{s[0:4]}-{s[4:6]}-{s[6:8]}"
+                    else:
+                        result["listing_date"] = s
+                name = kv.get("股票简称")
+                if name:
+                    result["name"] = str(name)
+        except Exception:
+            logger.exception("akshare stock_individual_info_em failed for code=%s", code)
+
+        try:
+            ind_df = ak.stock_a_indicator_lg(symbol=code)
+            if ind_df is not None and not ind_df.empty:
+                if "trade_date" in ind_df.columns:
+                    ind_df = ind_df.sort_values("trade_date")
+                last = ind_df.iloc[-1]
+                result["pe"] = _to_float(last.get("pe"))
+                result["pe_ttm"] = _to_float(last.get("pe_ttm"))
+                result["pb"] = _to_float(last.get("pb"))
+                result["ps_ttm"] = _to_float(last.get("ps_ttm"))
+                result["dv_ttm"] = _to_float(last.get("dv_ttm"))
+                if result["total_market_cap"] is None:
+                    mv = _to_float(last.get("total_mv"))
+                    if mv is not None:
+                        result["total_market_cap"] = mv * 10000
+                ts = last.get("trade_date")
+                result["as_of"] = str(ts) if ts is not None else None
+        except Exception:
+            logger.exception("akshare stock_a_indicator_lg failed for code=%s", code)
+
+        try:
+            quote = self.get_realtime_quote(code)
+            if quote:
+                price = _to_float(quote.get("price"))
+                if price is not None and price > 0:
+                    result["price"] = price
+                cp = _to_float(quote.get("change_pct"))
+                if cp is not None:
+                    result["change_pct"] = cp
+                if not result["name"] and quote.get("name"):
+                    result["name"] = quote["name"]
+        except Exception:
+            logger.exception("akshare get_realtime_quote (fundamentals) failed for code=%s", code)
+
+        return result
+
     def get_index_data(self) -> list[dict]:
         # 东方财富实时 → Sina 实时 → 日线历史最后一条
         major = [

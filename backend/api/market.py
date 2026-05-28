@@ -93,3 +93,9 @@ def get_indices():
 def get_quote(code: str = Query(..., description="Stock code, e.g. 000001")):
     ds = get_data_source()
     return ds.get_realtime_quote(code)
+
+
+@router.get("/fundamentals")
+def get_fundamentals(code: str = Query(..., description="Stock code, e.g. 000001")):
+    ds = get_data_source()
+    return ds.get_fundamentals(code)

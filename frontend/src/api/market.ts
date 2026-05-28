@@ -35,3 +35,27 @@ export async function fetchQuote(code: string): Promise<QuoteData> {
   const { data } = await api.get<QuoteData>('/market/quote', { params: { code } });
   return data;
 }
+
+export interface Fundamentals {
+  code: string;
+  name: string;
+  price: number | null;
+  change_pct: number | null;
+  pe: number | null;
+  pe_ttm: number | null;
+  pb: number | null;
+  ps_ttm: number | null;
+  dv_ttm: number | null;
+  total_market_cap: number | null;
+  float_market_cap: number | null;
+  total_shares: number | null;
+  float_shares: number | null;
+  industry: string;
+  listing_date: string;
+  as_of: string | null;
+}
+
+export async function fetchFundamentals(code: string): Promise<Fundamentals> {
+  const { data } = await api.get<Fundamentals>('/market/fundamentals', { params: { code } });
+  return data;
+}

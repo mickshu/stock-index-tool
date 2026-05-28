@@ -58,6 +58,14 @@ export interface StockInfo {
   code: string;
   name: string;
   market: string;
+  group_id?: number | null;
+}
+
+export interface WatchlistGroup {
+  id: number;
+  name: string;
+  sort_order: number;
+  count?: number | null;
 }
 
 export interface IndexData {

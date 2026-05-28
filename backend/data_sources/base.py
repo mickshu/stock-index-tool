@@ -21,6 +21,27 @@ class BaseDataSource(ABC):
     def get_index_data(self) -> list[dict]:
         ...
 
+    def get_fundamentals(self, code: str) -> dict:
+        """关键财务/估值指标。默认返回占位结构，未实现则各字段为 None。"""
+        return {
+            "code": code,
+            "name": "",
+            "price": None,
+            "change_pct": None,
+            "pe": None,
+            "pe_ttm": None,
+            "pb": None,
+            "ps_ttm": None,
+            "dv_ttm": None,
+            "total_market_cap": None,
+            "float_market_cap": None,
+            "total_shares": None,
+            "float_shares": None,
+            "industry": "",
+            "listing_date": "",
+            "as_of": None,
+        }
+
 
 PERIOD_MAP = {
     "daily": "daily",
