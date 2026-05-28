@@ -28,9 +28,6 @@ const periodOptions: { label: string; value: Period }[] = [
   { label: '日线', value: 'daily' },
   { label: '周线', value: 'weekly' },
   { label: '月线', value: 'monthly' },
-  { label: '60分', value: '60min' },
-  { label: '30分', value: '30min' },
-  { label: '15分', value: '15min' },
 ];
 
 export default function StockDetail() {
