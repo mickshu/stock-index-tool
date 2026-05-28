@@ -4,16 +4,13 @@ import {
   Card,
   Segmented,
   Select,
-  Table,
   Tag,
   Space,
   Typography,
   Empty,
   Spin,
-  Popover,
   message,
   Grid,
-  List,
   Collapse,
 } from 'antd';
 import { SearchOutlined, FilterOutlined } from '@ant-design/icons';
@@ -48,37 +45,61 @@ function levelColor(level?: string): string {
   return 'blue';
 }
 
-function SignalTagsPopover({ signals, limit = 5 }: { signals: Signal[]; limit?: number }) {
-  const visible = signals.slice(0, limit);
-  const remaining = signals.slice(limit);
-
-  const renderTag = (s: Signal) => (
-    <Tag key={`${s.date}-${s.type}`} color={levelColor(s.level)}>
-      {s.name || s.type}
-      {s.date ? ` (${s.date})` : ''}
-    </Tag>
-  );
-
-  if (remaining.length === 0) {
-    return <Space size={[4, 4]} wrap>{visible.map(renderTag)}</Space>;
-  }
-
-  const popoverContent = (
-    <div style={{ maxWidth: 320 }}>
-      <Space size={[4, 4]} wrap>
-        {signals.map(renderTag)}
-      </Space>
-    </div>
-  );
-
+function SignalTags({ signals }: { signals: Signal[] }) {
   return (
     <Space size={[4, 4]} wrap>
-      {visible.map(renderTag)}
-      <Popover content={popoverContent} title="全部信号">
-        <Tag style={{ cursor: 'pointer' }}>+{remaining.length}</Tag>
-      </Popover>
+      {signals.map((s, idx) => (
+        <Tag key={`${s.date}-${s.type}-${idx}`} color={levelColor(s.level)}>
+          {s.name || s.type}
+        </Tag>
+      ))}
     </Space>
   );
+}
+
+interface DateGroup {
+  date: string;
+  rows: { stock: ScreenerStockResult; signals: Signal[] }[];
+  bullishCount: number;
+  bearishCount: number;
+}
+
+function groupResultsByDate(results: ScreenerStockResult[]): DateGroup[] {
+  const map = new Map<string, Map<string, { stock: ScreenerStockResult; signals: Signal[] }>>();
+
+  for (const stock of results) {
+    for (const sig of stock.matching_signals) {
+      if (!sig.date) continue;
+      let dayMap = map.get(sig.date);
+      if (!dayMap) {
+        dayMap = new Map();
+        map.set(sig.date, dayMap);
+      }
+      let entry = dayMap.get(stock.code);
+      if (!entry) {
+        entry = { stock, signals: [] };
+        dayMap.set(stock.code, entry);
+      }
+      entry.signals.push(sig);
+    }
+  }
+
+  return Array.from(map.entries())
+    .sort((a, b) => (a[0] < b[0] ? 1 : a[0] > b[0] ? -1 : 0))
+    .map(([date, dayMap]) => {
+      const rows = Array.from(dayMap.values()).sort(
+        (a, b) => b.signals.length - a.signals.length,
+      );
+      let bullishCount = 0;
+      let bearishCount = 0;
+      for (const r of rows) {
+        for (const s of r.signals) {
+          if (s.level === 'bullish') bullishCount += 1;
+          else if (s.level === 'bearish') bearishCount += 1;
+        }
+      }
+      return { date, rows, bullishCount, bearishCount };
+    });
 }
 
 interface ChipGroupProps {
@@ -163,112 +184,79 @@ export default function Screener() {
     setPeriod('daily');
   };
 
-  const columns = [
-    {
-      title: '代码',
-      dataIndex: 'code',
-      key: 'code',
-      width: 100,
-      render: (v: string) => <Typography.Text code>{v}</Typography.Text>,
-    },
-    { title: '名称', dataIndex: 'name', key: 'name', width: 120 },
-    {
-      title: '最新价',
-      dataIndex: 'latest_close',
-      key: 'latest_close',
-      width: 90,
-      render: (v: number | null) => (v != null ? v.toFixed(2) : '-'),
-    },
-    {
-      title: '信号数',
-      key: 'signal_count',
-      width: 110,
-      render: (_: unknown, record: ScreenerStockResult) => {
-        const bullish = record.matching_signals.filter((s) => s.level === 'bullish').length;
-        const bearish = record.matching_signals.filter((s) => s.level === 'bearish').length;
-        return (
-          <Space size={4}>
-            {bullish > 0 && <Tag color="green">多 {bullish}</Tag>}
-            {bearish > 0 && <Tag color="red">空 {bearish}</Tag>}
-            {bullish === 0 && bearish === 0 && <Tag>{record.matching_signals.length}</Tag>}
-          </Space>
-        );
-      },
-    },
-    {
-      title: '命中信号',
-      key: 'signal_details',
-      render: (_: unknown, record: ScreenerStockResult) => (
-        <SignalTagsPopover signals={record.matching_signals} />
-      ),
-    },
-    {
-      title: '操作',
-      key: 'actions',
-      width: 90,
-      render: (_: unknown, record: ScreenerStockResult) => (
-        <Button type="link" size="small" onClick={() => navigate(`/stock/${record.code}`)}>
-          分析
-        </Button>
-      ),
-    },
-  ];
+  const dateGroups = useMemo(() => groupResultsByDate(results), [results]);
 
-  const renderMobileList = () => (
-    <List
-      itemLayout="vertical"
-      size="small"
-      dataSource={results}
-      pagination={{ pageSize: 10, size: 'small', align: 'center' }}
-      renderItem={(record) => {
-        const bullish = record.matching_signals.filter((s) => s.level === 'bullish').length;
-        const bearish = record.matching_signals.filter((s) => s.level === 'bearish').length;
-        return (
-          <List.Item
-            key={record.code}
-            style={{ padding: '10px 4px' }}
-            actions={[
-              <Button
-                key="analyze"
-                type="link"
-                size="small"
-                onClick={() => navigate(`/stock/${record.code}`)}
-              >
-                分析 →
-              </Button>,
-            ]}
-          >
+  const renderGroupedResults = () => {
+    if (dateGroups.length === 0) {
+      return <Empty description="没有匹配的股票，请放宽筛选条件" />;
+    }
+
+    const items = dateGroups.map((group) => ({
+      key: group.date,
+      label: (
+        <Space size={8} wrap>
+          <Typography.Text strong>{group.date}</Typography.Text>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {group.rows.length} 只股票
+          </Typography.Text>
+          {group.bullishCount > 0 && <Tag color="green">多 {group.bullishCount}</Tag>}
+          {group.bearishCount > 0 && <Tag color="red">空 {group.bearishCount}</Tag>}
+        </Space>
+      ),
+      children: (
+        <Space direction="vertical" size={isMobile ? 8 : 10} style={{ width: '100%' }}>
+          {group.rows.map(({ stock, signals }) => (
             <div
+              key={`${group.date}-${stock.code}`}
               style={{
                 display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'baseline',
-                marginBottom: 6,
+                flexDirection: isMobile ? 'column' : 'row',
+                gap: isMobile ? 6 : 12,
+                padding: isMobile ? '6px 0' : '8px 0',
+                borderBottom: '1px dashed rgba(0,0,0,0.06)',
               }}
             >
-              <Space size={6} wrap>
-                <Typography.Text strong>{record.name}</Typography.Text>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'baseline',
+                  gap: 8,
+                  minWidth: isMobile ? undefined : 220,
+                }}
+              >
+                <Typography.Text strong>{stock.name}</Typography.Text>
                 <Typography.Text code style={{ fontSize: 12 }}>
-                  {record.code}
+                  {stock.code}
                 </Typography.Text>
-              </Space>
-              <Typography.Text strong style={{ fontSize: 15 }}>
-                {record.latest_close != null ? record.latest_close.toFixed(2) : '-'}
-              </Typography.Text>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  {stock.latest_close != null ? stock.latest_close.toFixed(2) : '-'}
+                </Typography.Text>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <SignalTags signals={signals} />
+              </div>
+              <Button
+                type="link"
+                size="small"
+                style={{ padding: 0, alignSelf: isMobile ? 'flex-end' : 'center' }}
+                onClick={() => navigate(`/stock/${stock.code}`)}
+              >
+                分析 →
+              </Button>
             </div>
-            <Space size={4} wrap style={{ marginBottom: 6 }}>
-              {bullish > 0 && <Tag color="green">多 {bullish}</Tag>}
-              {bearish > 0 && <Tag color="red">空 {bearish}</Tag>}
-              {bullish === 0 && bearish === 0 && (
-                <Tag>{record.matching_signals.length}</Tag>
-              )}
-            </Space>
-            <SignalTagsPopover signals={record.matching_signals} limit={3} />
-          </List.Item>
-        );
-      }}
-    />
-  );
+          ))}
+        </Space>
+      ),
+    }));
+
+    return (
+      <Collapse
+        size={isMobile ? 'small' : 'middle'}
+        defaultActiveKey={dateGroups.map((g) => g.date)}
+        items={items}
+      />
+    );
+  };
 
   const renderResults = () => {
     if (loading) {
@@ -290,20 +278,10 @@ export default function Screener() {
     return (
       <>
         <Typography.Text type="secondary" style={{ marginBottom: 12, display: 'block' }}>
-          已扫描 {summary.total_stocks_screened} 只股票，命中 {summary.total_matches} 只
+          已扫描 {summary.total_stocks_screened} 只股票，命中 {summary.total_matches} 只，
+          覆盖 {dateGroups.length} 个交易日
         </Typography.Text>
-        {isMobile ? (
-          renderMobileList()
-        ) : (
-          <Table
-            rowKey={(r) => r.code}
-            columns={columns}
-            dataSource={results}
-            size="middle"
-            pagination={{ pageSize: 20 }}
-            scroll={{ x: 680 }}
-          />
-        )}
+        {renderGroupedResults()}
       </>
     );
   };

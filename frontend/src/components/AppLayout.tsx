@@ -8,7 +8,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 
-const { Header, Sider, Content } = Layout;
+const { Sider, Content } = Layout;
 const { useBreakpoint } = Grid;
 
 export default function AppLayout() {
@@ -53,24 +53,6 @@ export default function AppLayout() {
         />
       </Sider>
       <Layout>
-        <Header
-          style={{
-            padding: isMobile ? '0 12px' : '0 24px',
-            background: '#fff',
-            display: 'flex',
-            alignItems: 'center',
-          }}
-        >
-          <Typography.Title
-            level={4}
-            style={{
-              margin: isMobile ? '8px 0' : '16px 0',
-              fontSize: isMobile ? 16 : undefined,
-            }}
-          >
-            Stock Analysis Tool
-          </Typography.Title>
-        </Header>
         <Content
           style={{
             margin: isMobile ? 8 : 16,
