@@ -21,6 +21,25 @@ class BaseDataSource(ABC):
     def get_index_data(self) -> list[dict]:
         ...
 
+    def get_fund_flow_top(self, n: int = 10) -> dict:
+        """主力资金流入/流出 TOP N 个股。默认返回空结构。
+
+        return: {"date": "YYYY-MM-DD" | None,
+                 "inflow":  [{code, name, main_net, price, change_pct}, ...],
+                 "outflow": [{code, name, main_net, price, change_pct}, ...]}
+        main_net 单位：元（亿元换算交给前端）。
+        """
+        return {"date": None, "inflow": [], "outflow": []}
+
+    def get_sector_fund_flow_top(self, n: int = 5) -> dict:
+        """行业板块资金流入/流出 TOP N。默认返回空结构。
+
+        return: {"date": "YYYY-MM-DD" | None,
+                 "inflow":  [{name, main_net, change_pct}, ...],
+                 "outflow": [{name, main_net, change_pct}, ...]}
+        """
+        return {"date": None, "inflow": [], "outflow": []}
+
     def get_fundamentals(self, code: str) -> dict:
         """关键财务/估值指标。默认返回占位结构，未实现则各字段为 None。"""
         return {

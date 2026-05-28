@@ -40,6 +40,7 @@ import {
   deleteGroup,
   setStockGroup,
 } from '../api/stocks';
+import { fetchQuote, type QuoteData } from '../api/market';
 
 const ALL_KEY = '__all__';
 const UNGROUPED_KEY = '__ungrouped__';
@@ -51,6 +52,7 @@ export default function Watchlist() {
   const screens = useBreakpoint();
   const isMobile = !screens.md;
   const [data, setData] = useState<StockInfo[]>([]);
+  const [quotes, setQuotes] = useState<Record<string, QuoteData>>({});
   const [groups, setGroups] = useState<WatchlistGroup[]>([]);
   const [ungroupedCount, setUngroupedCount] = useState(0);
   const [filter, setFilter] = useState<GroupFilter>(ALL_KEY);
@@ -87,12 +89,30 @@ export default function Watchlist() {
           : { groupId: current as number };
       const rows = await fetchWatchlist(opts);
       setData(rows);
+      const seq = ++quoteSeqRef.current;
+      setQuotes({});
+      Promise.all(
+        rows.map((r) =>
+          fetchQuote(r.code)
+            .then((q) => [r.code, q] as const)
+            .catch(() => null),
+        ),
+      ).then((results) => {
+        if (seq !== quoteSeqRef.current) return;
+        const next: Record<string, QuoteData> = {};
+        for (const item of results) {
+          if (item) next[item[0]] = item[1];
+        }
+        setQuotes(next);
+      });
     } catch {
       message.error('加载自选股失败');
     } finally {
       setLoading(false);
     }
   };
+
+  const quoteSeqRef = useRef(0);
 
   useEffect(() => {
     reloadGroups();
@@ -238,6 +258,31 @@ export default function Watchlist() {
   const columns = [
     { title: '代码', dataIndex: 'code', key: 'code', width: 90 },
     { title: '名称', dataIndex: 'name', key: 'name' },
+    {
+      title: '最新价',
+      key: 'price',
+      width: 90,
+      align: 'right' as const,
+      render: (_: unknown, record: StockInfo) => {
+        const q = quotes[record.code];
+        if (!q || !(q.price > 0)) return <Typography.Text type="secondary">—</Typography.Text>;
+        return <Typography.Text strong>{q.price.toFixed(2)}</Typography.Text>;
+      },
+    },
+    {
+      title: '涨跌幅',
+      key: 'change_pct',
+      width: 90,
+      align: 'right' as const,
+      render: (_: unknown, record: StockInfo) => {
+        const q = quotes[record.code];
+        if (!q || q.change_pct == null) return <Typography.Text type="secondary">—</Typography.Text>;
+        const v = q.change_pct;
+        const color = v > 0 ? '#cf1322' : v < 0 ? '#3f8600' : undefined;
+        const sign = v > 0 ? '+' : '';
+        return <Typography.Text strong style={{ color }}>{`${sign}${v.toFixed(2)}%`}</Typography.Text>;
+      },
+    },
     { title: '市场', dataIndex: 'market', key: 'market', width: 70 },
     {
       title: '分组',

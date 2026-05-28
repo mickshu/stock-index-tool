@@ -5,12 +5,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+import logging
+
 from backend.database import init_db
 from backend.api.market import router as market_router
 from backend.api.analysis import router as analysis_router
 from backend.api.stocks import router as stocks_router
 from backend.api.datasource import router as datasource_router
 from backend.api.screener import router as screener_router
+from backend.api.settings import router as settings_router
+from backend.api.summary import router as summary_router, _generate_and_cache
 
 app = FastAPI(title="Stock Analysis Tool", version="0.1.0")
 
@@ -27,11 +31,40 @@ app.include_router(analysis_router)
 app.include_router(stocks_router)
 app.include_router(datasource_router)
 app.include_router(screener_router)
+app.include_router(settings_router)
+app.include_router(summary_router)
+
+
+_scheduler_logger = logging.getLogger("backend.scheduler")
+
+
+def _safe_daily_summary_job():
+    try:
+        _generate_and_cache(force=True)
+        _scheduler_logger.info("Daily summary generated")
+    except Exception:
+        _scheduler_logger.exception("Daily summary scheduled job failed")
 
 
 @app.on_event("startup")
 def on_startup():
     init_db()
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        from apscheduler.triggers.cron import CronTrigger
+    except ImportError:
+        _scheduler_logger.warning("APScheduler not installed; daily summary auto-generation disabled")
+        return
+    scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
+    # A 股交易日 15:30 收盘后；周一至周五（节假日不区分，失败容忍）
+    scheduler.add_job(
+        _safe_daily_summary_job,
+        CronTrigger(day_of_week="mon-fri", hour=15, minute=30),
+        id="daily_summary",
+        replace_existing=True,
+    )
+    scheduler.start()
+    app.state.scheduler = scheduler
 
 
 @app.get("/api/health")

@@ -270,6 +270,17 @@ class AkshareDataSource(BaseDataSource):
         return None
 
     def get_realtime_quote(self, code: str) -> dict:
+        # 主源 腾讯（极稳定）→ EM spot wrapper（限流时易失败）→ 仅名称兜底
+        qt = self._tencent_quote(code)
+        if qt:
+            price = _to_float(qt[3]) if len(qt) > 3 else None
+            change_pct = _to_float(qt[32]) if len(qt) > 32 else None
+            return {
+                "code": code,
+                "name": qt[1] or "",
+                "price": price if price is not None else 0,
+                "change_pct": change_pct if change_pct is not None else 0,
+            }
         row = self._get_em_spot_row(code)
         if row is None:
             return self._fallback_quote(code)
@@ -330,6 +341,125 @@ class AkshareDataSource(BaseDataSource):
                         result["as_of"] = str(df["date"].iloc[-1])
             except Exception:
                 logger.exception("Baidu valuation fetch failed for %s %s", code, indicator)
+
+    # 资金流接口的内存缓存，5 分钟 TTL（盘中刷新够用，盘后稳定不变）
+    _FUND_FLOW_CACHE: dict = {"stocks": {"ts": 0.0, "data": None}, "sectors": {"ts": 0.0, "data": None}}
+    _FUND_FLOW_TTL = 300.0
+
+    def _em_clist(self, fs: str, fields: str, pn: int = 1, pz: int = 50, fid: str = "f62", po: int = 1) -> list[dict]:
+        """通用 EM push2 clist 拉取。po=1 降序，po=0 升序；按 fid 字段排。"""
+        try:
+            resp = requests.get(
+                "https://push2.eastmoney.com/api/qt/clist/get",
+                params={
+                    "pn": pn, "pz": pz, "po": po, "np": 1, "fltt": 2, "invt": 2,
+                    "fid": fid, "fs": fs, "fields": fields,
+                },
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+                    ),
+                    "Referer": "https://quote.eastmoney.com/",
+                },
+                timeout=6,
+            )
+            resp.raise_for_status()
+            data = (resp.json() or {}).get("data") or {}
+            diff = data.get("diff") or []
+            if isinstance(diff, dict):
+                diff = list(diff.values())
+            return [it for it in diff if isinstance(it, dict)]
+        except Exception:
+            logger.exception("EastMoney clist fetch failed fs=%s", fs)
+            return []
+
+    @staticmethod
+    def _ts_to_date(ts: float | int | None) -> str | None:
+        if not ts:
+            return None
+        try:
+            return time.strftime("%Y-%m-%d", time.localtime(float(ts)))
+        except Exception:
+            return None
+
+    def get_fund_flow_top(self, n: int = 10) -> dict:
+        """主力资金流入/流出 TOP N 个股。EM 直连 clist 排序，单次往返完成。"""
+        now = time.monotonic()
+        cache = self._FUND_FLOW_CACHE["stocks"]
+        if cache["data"] is not None and now - cache["ts"] < self._FUND_FLOW_TTL:
+            return cache["data"]
+
+        # fs 覆盖沪深 A 股 + 创业板 + 科创板
+        fs = "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048"
+        fields = "f2,f3,f12,f14,f62,f124,f184"
+        top_in = self._em_clist(fs, fields, pn=1, pz=n, fid="f62", po=1)
+        top_out = self._em_clist(fs, fields, pn=1, pz=n, fid="f62", po=0)
+
+        def shape(row: dict) -> dict:
+            return {
+                "code": str(row.get("f12") or ""),
+                "name": str(row.get("f14") or ""),
+                "price": _to_float(row.get("f2")),
+                "change_pct": _to_float(row.get("f3")),
+                "main_net": _to_float(row.get("f62")),
+                "main_net_ratio": _to_float(row.get("f184")),
+            }
+
+        date_str = None
+        for r in (top_in + top_out):
+            date_str = self._ts_to_date(r.get("f124"))
+            if date_str:
+                break
+        if not date_str:
+            date_str = date.today().isoformat()
+
+        result = {
+            "date": date_str,
+            "inflow": [shape(r) for r in top_in if _to_float(r.get("f62")) and _to_float(r.get("f62")) > 0],
+            "outflow": [shape(r) for r in top_out if _to_float(r.get("f62")) and _to_float(r.get("f62")) < 0],
+        }
+        self._FUND_FLOW_CACHE["stocks"] = {"ts": now, "data": result}
+        return result
+
+    def get_sector_fund_flow_top(self, n: int = 5) -> dict:
+        """行业板块资金流入/流出 TOP N。EM 行业板块 fs=m:90+t:2。"""
+        now = time.monotonic()
+        cache = self._FUND_FLOW_CACHE["sectors"]
+        if cache["data"] is not None and now - cache["ts"] < self._FUND_FLOW_TTL:
+            return cache["data"]
+
+        fs = "m:90+t:2"
+        fields = "f3,f12,f14,f62,f124,f184,f204,f205,f206"
+        top_in = self._em_clist(fs, fields, pn=1, pz=n, fid="f62", po=1)
+        top_out = self._em_clist(fs, fields, pn=1, pz=n, fid="f62", po=0)
+
+        def shape(row: dict) -> dict:
+            return {
+                "code": str(row.get("f12") or ""),
+                "name": str(row.get("f14") or ""),
+                "change_pct": _to_float(row.get("f3")),
+                "main_net": _to_float(row.get("f62")),
+                "main_net_ratio": _to_float(row.get("f184")),
+                "lead_stock": str(row.get("f204") or ""),
+                "lead_change_pct": _to_float(row.get("f206")),
+            }
+
+        date_str = None
+        for r in (top_in + top_out):
+            date_str = self._ts_to_date(r.get("f124"))
+            if date_str:
+                break
+        if not date_str:
+            date_str = date.today().isoformat()
+
+        result = {
+            "date": date_str,
+            "inflow": [shape(r) for r in top_in if _to_float(r.get("f62")) and _to_float(r.get("f62")) > 0],
+            "outflow": [shape(r) for r in top_out if _to_float(r.get("f62")) and _to_float(r.get("f62")) < 0],
+        }
+        self._FUND_FLOW_CACHE["sectors"] = {"ts": now, "data": result}
+        return result
 
     def get_fundamentals(self, code: str) -> dict:
         """合并多源行情/估值/股本数据。akshare 的 stock_individual_info_em / stock_zh_a_spot_em

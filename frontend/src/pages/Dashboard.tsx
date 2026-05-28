@@ -3,6 +3,9 @@ import { Card, Row, Col, Statistic, Typography, Empty, Button, Result, Grid } fr
 import { ArrowUpOutlined, ArrowDownOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { IndexData } from '../types';
 import { fetchIndices } from '../api/market';
+import FundFlowStocksCard from '../components/FundFlowStocksCard';
+import FundFlowSectorsCard from '../components/FundFlowSectorsCard';
+import DailySummaryCard from '../components/DailySummaryCard';
 
 const { useBreakpoint } = Grid;
 
@@ -86,6 +89,10 @@ export default function Dashboard() {
           ))}
         </Row>
       )}
+
+      <FundFlowStocksCard />
+      <FundFlowSectorsCard />
+      <DailySummaryCard />
     </div>
   );
 }

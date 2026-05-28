@@ -1,0 +1,286 @@
+"""AI 收盘总结服务。
+
+支持两种 provider：
+- openai 兼容（OpenAI / DeepSeek / Moonshot / SiliconFlow / vLLM 等）
+- anthropic Claude
+
+内置两个工具：
+- web_search（Tavily）— 未配置 Tavily key 时返回提示，模型可降级
+- web_fetch（直接 GET + BeautifulSoup 提正文）
+
+工具调用以多轮循环驱动，上限 5 轮。
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import time
+from typing import Any
+
+import requests
+
+logger = logging.getLogger(__name__)
+
+MAX_TOOL_LOOPS = 5
+WEB_FETCH_MAX_CHARS = 8000
+TAVILY_URL = "https://api.tavily.com/search"
+
+SYSTEM_PROMPT = (
+    "你是 A 股每日收盘资讯总结助手。基于用户给出的指数行情、个股资金流 TOP10、行业板块"
+    "资金流 TOP5 数据，结合 web_search 与 web_fetch 获取的最新新闻，给出当日中文收盘综"
+    "述：①大盘表现 ②资金动向 ③热点板块/个股 ④消息面要点 ⑤明日关注。要求：客观、紧扣"
+    "数据、注明信息来源（用 markdown 链接），不超过 600 字。"
+)
+
+TOOLS_OPENAI_SCHEMA = [
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": "在互联网上搜索与 A 股收盘行情、政策、个股新闻相关的内容。返回 5 条左右标题+摘要+URL。",
+            "parameters": {
+                "type": "object",
+                "properties": {"query": {"type": "string", "description": "搜索关键词"}},
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_fetch",
+            "description": "抓取指定 URL 的网页正文。用于在 web_search 之后深入了解感兴趣的新闻。",
+            "parameters": {
+                "type": "object",
+                "properties": {"url": {"type": "string", "description": "要抓取的网址"}},
+                "required": ["url"],
+            },
+        },
+    },
+]
+
+TOOLS_CLAUDE_SCHEMA = [
+    {
+        "name": "web_search",
+        "description": "在互联网上搜索与 A 股收盘行情、政策、个股新闻相关的内容。返回 5 条左右标题+摘要+URL。",
+        "input_schema": {
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "搜索关键词"}},
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "web_fetch",
+        "description": "抓取指定 URL 的网页正文。用于在 web_search 之后深入了解感兴趣的新闻。",
+        "input_schema": {
+            "type": "object",
+            "properties": {"url": {"type": "string", "description": "要抓取的网址"}},
+            "required": ["url"],
+        },
+    },
+]
+
+
+def _tool_web_search(query: str, settings: dict) -> dict:
+    provider = (settings or {}).get("search_provider") or "none"
+    if provider != "tavily":
+        return {"error": "未配置联网搜索 provider；可在设置 → AI 配置 启用 Tavily。"}
+    api_key = (settings or {}).get("tavily_api_key") or ""
+    if not api_key:
+        return {"error": "Tavily API Key 未配置。"}
+    try:
+        resp = requests.post(
+            TAVILY_URL,
+            json={
+                "api_key": api_key,
+                "query": query,
+                "search_depth": "basic",
+                "max_results": 5,
+                "include_answer": False,
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json() or {}
+        results = [
+            {"title": r.get("title", ""), "url": r.get("url", ""), "snippet": r.get("content", "")}
+            for r in (data.get("results") or [])
+        ]
+        return {"results": results}
+    except Exception as e:
+        logger.exception("web_search failed")
+        return {"error": str(e)}
+
+
+def _tool_web_fetch(url: str) -> dict:
+    if not url or not url.startswith(("http://", "https://")):
+        return {"error": "URL 非法"}
+    try:
+        resp = requests.get(
+            url,
+            timeout=8,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; StockSummaryBot/1.0)"},
+        )
+        resp.raise_for_status()
+        text = resp.text or ""
+        try:
+            from bs4 import BeautifulSoup  # 延迟 import，未装时给出明确提示
+            soup = BeautifulSoup(text, "html.parser")
+            for tag in soup(["script", "style", "noscript"]):
+                tag.decompose()
+            content = " ".join(soup.get_text(separator=" ", strip=True).split())
+        except Exception:
+            content = text
+        if len(content) > WEB_FETCH_MAX_CHARS:
+            content = content[:WEB_FETCH_MAX_CHARS] + "…[truncated]"
+        return {"url": url, "content": content}
+    except Exception as e:
+        logger.exception("web_fetch failed for %s", url)
+        return {"error": str(e)}
+
+
+def _dispatch_tool(name: str, args: dict, settings: dict, sources: list[str]) -> str:
+    if name == "web_search":
+        out = _tool_web_search(args.get("query", ""), settings)
+        for r in (out.get("results") or []):
+            if r.get("url"):
+                sources.append(r["url"])
+        return json.dumps(out, ensure_ascii=False)
+    if name == "web_fetch":
+        out = _tool_web_fetch(args.get("url", ""))
+        if out.get("url"):
+            sources.append(out["url"])
+        return json.dumps(out, ensure_ascii=False)
+    return json.dumps({"error": f"unknown tool: {name}"})
+
+
+def _user_context(indices: list[dict], stock_flow: dict, sector_flow: dict) -> str:
+    today = stock_flow.get("date") or sector_flow.get("date") or time.strftime("%Y-%m-%d")
+    lines = [f"## 当日数据（{today}）", "", "### 指数行情"]
+    for idx in indices or []:
+        price = idx.get("price") or 0
+        cp = idx.get("change_pct") or 0
+        lines.append(f"- {idx.get('name')} {price:.2f} ({cp:+.2f}%)")
+    lines += ["", f"### 主力资金净流入 TOP{len(stock_flow.get('inflow') or [])}"]
+    for s in (stock_flow.get("inflow") or []):
+        mn = (s.get("main_net") or 0) / 1e8
+        lines.append(f"- {s.get('code')} {s.get('name')} 主力净流入 {mn:+.2f} 亿元，涨跌 {(s.get('change_pct') or 0):+.2f}%")
+    lines += ["", f"### 主力资金净流出 TOP{len(stock_flow.get('outflow') or [])}"]
+    for s in (stock_flow.get("outflow") or []):
+        mn = (s.get("main_net") or 0) / 1e8
+        lines.append(f"- {s.get('code')} {s.get('name')} 主力净流出 {mn:+.2f} 亿元，涨跌 {(s.get('change_pct') or 0):+.2f}%")
+    lines += ["", f"### 行业板块资金净流入 TOP{len(sector_flow.get('inflow') or [])}"]
+    for s in (sector_flow.get("inflow") or []):
+        mn = (s.get("main_net") or 0) / 1e8
+        lines.append(f"- {s.get('name')} 净流入 {mn:+.2f} 亿元，板块涨跌 {(s.get('change_pct') or 0):+.2f}%")
+    lines += ["", f"### 行业板块资金净流出 TOP{len(sector_flow.get('outflow') or [])}"]
+    for s in (sector_flow.get("outflow") or []):
+        mn = (s.get("main_net") or 0) / 1e8
+        lines.append(f"- {s.get('name')} 净流出 {mn:+.2f} 亿元，板块涨跌 {(s.get('change_pct') or 0):+.2f}%")
+    lines += ["", "请基于以上数据，必要时联网检索新闻面，给出今日 A 股收盘综述（中文 markdown，≤600 字）。"]
+    return "\n".join(lines)
+
+
+def _run_openai(settings: dict, user_msg: str) -> tuple[str, str, list[str]]:
+    from openai import OpenAI
+    api_key = settings.get("openai_api_key") or ""
+    if not api_key:
+        raise RuntimeError("OpenAI API Key 未配置")
+    base_url = settings.get("openai_base_url") or "https://api.openai.com/v1"
+    model = settings.get("openai_model") or "gpt-4o-mini"
+    client = OpenAI(api_key=api_key, base_url=base_url, timeout=60)
+
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": user_msg},
+    ]
+    sources: list[str] = []
+    for _ in range(MAX_TOOL_LOOPS):
+        resp = client.chat.completions.create(
+            model=model, messages=messages, tools=TOOLS_OPENAI_SCHEMA, tool_choice="auto",
+            temperature=0.4,
+        )
+        msg = resp.choices[0].message
+        if not msg.tool_calls:
+            return (msg.content or "").strip(), model, sources
+        messages.append({
+            "role": "assistant",
+            "content": msg.content or "",
+            "tool_calls": [
+                {"id": tc.id, "type": "function",
+                 "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                for tc in msg.tool_calls
+            ],
+        })
+        for tc in msg.tool_calls:
+            try:
+                args = json.loads(tc.function.arguments or "{}")
+            except Exception:
+                args = {}
+            tool_result = _dispatch_tool(tc.function.name, args, settings, sources)
+            messages.append({"role": "tool", "tool_call_id": tc.id, "content": tool_result})
+    resp = client.chat.completions.create(model=model, messages=messages, temperature=0.4)
+    return (resp.choices[0].message.content or "").strip(), model, sources
+
+
+def _run_anthropic(settings: dict, user_msg: str) -> tuple[str, str, list[str]]:
+    import anthropic
+    api_key = settings.get("anthropic_api_key") or ""
+    if not api_key:
+        raise RuntimeError("Anthropic API Key 未配置")
+    model = settings.get("anthropic_model") or "claude-sonnet-4-6"
+    client = anthropic.Anthropic(api_key=api_key, timeout=60)
+
+    messages: list[dict[str, Any]] = [{"role": "user", "content": user_msg}]
+    sources: list[str] = []
+    for _ in range(MAX_TOOL_LOOPS):
+        resp = client.messages.create(
+            model=model, max_tokens=2048, system=SYSTEM_PROMPT,
+            tools=TOOLS_CLAUDE_SCHEMA, messages=messages, temperature=0.4,
+        )
+        if resp.stop_reason != "tool_use":
+            parts = [b.text for b in resp.content if getattr(b, "type", "") == "text"]
+            return "".join(parts).strip(), model, sources
+        messages.append({"role": "assistant", "content": [b.model_dump() for b in resp.content]})
+        tool_results = []
+        for b in resp.content:
+            if getattr(b, "type", "") == "tool_use":
+                tool_result = _dispatch_tool(b.name, dict(b.input or {}), settings, sources)
+                tool_results.append({"type": "tool_result", "tool_use_id": b.id, "content": tool_result})
+        messages.append({"role": "user", "content": tool_results})
+    resp = client.messages.create(
+        model=model, max_tokens=2048, system=SYSTEM_PROMPT, messages=messages, temperature=0.4,
+    )
+    parts = [b.text for b in resp.content if getattr(b, "type", "") == "text"]
+    return "".join(parts).strip(), model, sources
+
+
+def generate_daily_summary(
+    indices: list[dict],
+    stock_flow: dict,
+    sector_flow: dict,
+    settings: dict,
+) -> dict:
+    """主入口。settings 来自 AppSetting kv（已解密的明文 dict）。
+
+    返回 {model, content, sources, generated_at}。
+    """
+    provider = (settings or {}).get("provider") or "openai"
+    user_msg = _user_context(indices, stock_flow, sector_flow)
+
+    if provider == "anthropic":
+        content, model, sources = _run_anthropic(settings, user_msg)
+    else:
+        content, model, sources = _run_openai(settings, user_msg)
+    seen, dedup = set(), []
+    for u in sources:
+        if u and u not in seen:
+            seen.add(u)
+            dedup.append(u)
+    return {
+        "model": model,
+        "content": content,
+        "sources": dedup,
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }

@@ -1,6 +1,23 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Float, Date, DateTime, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Text, UniqueConstraint
 from backend.database import Base
+
+
+class AppSetting(Base):
+    __tablename__ = "app_setting"
+
+    key = Column(String(80), primary_key=True)
+    value = Column(Text)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class DailySummary(Base):
+    __tablename__ = "daily_summary"
+
+    trade_date = Column(Date, primary_key=True)
+    payload = Column(Text, nullable=False)
+    model = Column(String(80))
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class WatchlistGroup(Base):
