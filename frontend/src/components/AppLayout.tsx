@@ -19,10 +19,10 @@ export default function AppLayout() {
   const isMobile = !screens.lg;
 
   const menuItems = [
-    { key: '/', icon: <BarChartOutlined />, label: 'Dashboard' },
-    { key: '/stocks', icon: <StarOutlined />, label: 'Watchlist' },
-    { key: '/screener', icon: <SearchOutlined />, label: 'Screener' },
-    { key: '/settings', icon: <SettingOutlined />, label: 'Settings' },
+    { key: '/', icon: <BarChartOutlined />, label: '仪表盘' },
+    { key: '/stocks', icon: <StarOutlined />, label: '自选股' },
+    { key: '/screener', icon: <SearchOutlined />, label: '选股扫描' },
+    { key: '/settings', icon: <SettingOutlined />, label: '设置' },
   ];
 
   return (
