@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.models.models import AppSetting
+from backend.services.ai_summary import probe_llm, probe_tavily
 
 router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
 
@@ -79,6 +80,43 @@ def get_ai_settings():
     out = dict(cfg)
     for k in SECRET_FIELDS:
         out[k] = _mask(cfg.get(k) or "")
+    return out
+
+
+def _merge_for_test(payload: "AiSettingsIn") -> dict[str, Any]:
+    """合并表单值与已存明文配置：占位符/空字符串保留原值。用于测试不强制写库。"""
+    current = _load_raw()
+    incoming = payload.model_dump(exclude_none=True)
+    for k in SECRET_FIELDS:
+        v = incoming.get(k)
+        if v is None:
+            continue
+        if v == "" or v.startswith("****"):
+            incoming.pop(k)
+    current.update(incoming)
+    return current
+
+
+class AiTestIn(AiSettingsIn):
+    pass
+
+
+@router.post("/ai/test")
+def test_ai_settings(payload: AiTestIn):
+    """对当前表单（合并已存密钥）发起最小调用，验证 LLM / Tavily 联通。"""
+    if payload.provider not in ("openai", "anthropic"):
+        raise HTTPException(status_code=400, detail="provider must be openai or anthropic")
+    cfg = _merge_for_test(payload)
+    out: dict[str, Any] = {"llm": None, "search": None}
+    try:
+        out["llm"] = probe_llm(cfg)
+    except Exception as e:
+        out["llm"] = {"ok": False, "error": str(e)}
+    if (cfg.get("search_provider") or "none") == "tavily":
+        try:
+            out["search"] = probe_tavily(cfg)
+        except Exception as e:
+            out["search"] = {"ok": False, "error": str(e)}
     return out
 
 

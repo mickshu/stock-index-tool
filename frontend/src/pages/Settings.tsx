@@ -16,8 +16,10 @@ import { fetchDataSources, switchDataSource } from '../api/stocks';
 import {
   fetchAiSettings,
   saveAiSettings,
+  testAiSettings,
   type AiProvider,
   type AiSettings,
+  type AiTestResult,
   type SearchProvider,
 } from '../api/settings';
 
@@ -79,6 +81,8 @@ function AiSettingsTab() {
   const [form] = Form.useForm<AiSettings>();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<AiTestResult | null>(null);
   const [provider, setProvider] = useState<AiProvider>('openai');
   const [searchProvider, setSearchProvider] = useState<SearchProvider>('none');
 
@@ -106,6 +110,26 @@ function AiSettingsTab() {
       if (detail) message.error(detail);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const onTest = async () => {
+    try {
+      const values = await form.validateFields();
+      setTesting(true);
+      setTestResult(null);
+      const r = await testAiSettings(values);
+      setTestResult(r);
+      if (r.llm?.ok && (r.search === null || r.search?.ok)) {
+        message.success('测试通过');
+      } else {
+        message.warning('测试未全部通过，详见下方结果');
+      }
+    } catch (e) {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      message.error(detail || '测试请求失败');
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -170,10 +194,49 @@ function AiSettingsTab() {
         )}
 
         <Form.Item>
-          <Button type="primary" onClick={onSave} loading={saving}>
-            保存
-          </Button>
+          <Space>
+            <Button type="primary" onClick={onSave} loading={saving}>
+              保存
+            </Button>
+            <Button onClick={onTest} loading={testing}>
+              测试联调
+            </Button>
+          </Space>
         </Form.Item>
+
+        {testResult && (
+          <Space direction="vertical" style={{ width: '100%' }}>
+            {testResult.llm && (
+              <Alert
+                type={testResult.llm.ok ? 'success' : 'error'}
+                showIcon
+                message={
+                  testResult.llm.ok
+                    ? `LLM 联通成功：${testResult.llm.provider} / ${testResult.llm.model}`
+                    : `LLM 联通失败：${testResult.llm.error}`
+                }
+                description={
+                  testResult.llm.ok
+                    ? testResult.llm.sample
+                      ? `示例响应：${testResult.llm.sample}`
+                      : undefined
+                    : undefined
+                }
+              />
+            )}
+            {testResult.search && (
+              <Alert
+                type={testResult.search.ok ? 'success' : 'error'}
+                showIcon
+                message={
+                  testResult.search.ok
+                    ? `Tavily 联通成功（返回 ${testResult.search.results ?? 0} 条结果）`
+                    : `Tavily 联通失败：${testResult.search.error}`
+                }
+              />
+            )}
+          </Space>
+        )}
       </Form>
     </Card>
   );

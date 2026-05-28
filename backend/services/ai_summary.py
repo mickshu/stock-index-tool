@@ -182,8 +182,28 @@ def _user_context(indices: list[dict], stock_flow: dict, sector_flow: dict) -> s
     return "\n".join(lines)
 
 
+def _import_openai():
+    try:
+        from openai import OpenAI  # type: ignore
+        return OpenAI
+    except ImportError as e:
+        raise RuntimeError(
+            "openai 模块未安装。请在后端虚拟环境中执行：.venv/bin/pip install -r backend/requirements.txt 并以 .venv 启动 uvicorn"
+        ) from e
+
+
+def _import_anthropic():
+    try:
+        import anthropic  # type: ignore
+        return anthropic
+    except ImportError as e:
+        raise RuntimeError(
+            "anthropic 模块未安装。请在后端虚拟环境中执行：.venv/bin/pip install -r backend/requirements.txt 并以 .venv 启动 uvicorn"
+        ) from e
+
+
 def _run_openai(settings: dict, user_msg: str) -> tuple[str, str, list[str]]:
-    from openai import OpenAI
+    OpenAI = _import_openai()
     api_key = settings.get("openai_api_key") or ""
     if not api_key:
         raise RuntimeError("OpenAI API Key 未配置")
@@ -225,7 +245,7 @@ def _run_openai(settings: dict, user_msg: str) -> tuple[str, str, list[str]]:
 
 
 def _run_anthropic(settings: dict, user_msg: str) -> tuple[str, str, list[str]]:
-    import anthropic
+    anthropic = _import_anthropic()
     api_key = settings.get("anthropic_api_key") or ""
     if not api_key:
         raise RuntimeError("Anthropic API Key 未配置")
@@ -284,3 +304,53 @@ def generate_daily_summary(
         "sources": dedup,
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
+
+
+def probe_llm(settings: dict) -> dict:
+    """最小调用以验证 LLM 联通。返回 {ok, provider, model, sample, error?}。"""
+    provider = (settings or {}).get("provider") or "openai"
+    if provider == "anthropic":
+        anthropic = _import_anthropic()
+        api_key = (settings or {}).get("anthropic_api_key") or ""
+        if not api_key:
+            raise RuntimeError("Anthropic API Key 未配置")
+        model = (settings or {}).get("anthropic_model") or "claude-sonnet-4-6"
+        client = anthropic.Anthropic(api_key=api_key, timeout=20)
+        resp = client.messages.create(
+            model=model,
+            max_tokens=16,
+            messages=[{"role": "user", "content": "ping，请用中文回复一个字。"}],
+        )
+        sample = "".join(getattr(b, "text", "") for b in resp.content).strip()
+        return {"ok": True, "provider": "anthropic", "model": model, "sample": sample}
+    OpenAI = _import_openai()
+    api_key = (settings or {}).get("openai_api_key") or ""
+    if not api_key:
+        raise RuntimeError("OpenAI API Key 未配置")
+    base_url = (settings or {}).get("openai_base_url") or "https://api.openai.com/v1"
+    model = (settings or {}).get("openai_model") or "gpt-4o-mini"
+    client = OpenAI(api_key=api_key, base_url=base_url, timeout=20)
+    resp = client.chat.completions.create(
+        model=model,
+        max_tokens=16,
+        temperature=0,
+        messages=[{"role": "user", "content": "ping，请用中文回复一个字。"}],
+    )
+    sample = (resp.choices[0].message.content or "").strip()
+    return {"ok": True, "provider": "openai", "model": model, "sample": sample, "base_url": base_url}
+
+
+def probe_tavily(settings: dict) -> dict:
+    """最小调用验证 Tavily 联通。"""
+    api_key = (settings or {}).get("tavily_api_key") or ""
+    if not api_key:
+        raise RuntimeError("Tavily API Key 未配置")
+    resp = requests.post(
+        TAVILY_URL,
+        json={"api_key": api_key, "query": "A股", "search_depth": "basic", "max_results": 1},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    data = resp.json() or {}
+    n = len(data.get("results") or [])
+    return {"ok": True, "provider": "tavily", "results": n}

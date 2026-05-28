@@ -419,7 +419,9 @@ class AkshareDataSource(BaseDataSource):
             "inflow": [shape(r) for r in top_in if _to_float(r.get("f62")) and _to_float(r.get("f62")) > 0],
             "outflow": [shape(r) for r in top_out if _to_float(r.get("f62")) and _to_float(r.get("f62")) < 0],
         }
-        self._FUND_FLOW_CACHE["stocks"] = {"ts": now, "data": result}
+        # 仅当拿到非空结果时才写缓存，避免一次 EM 抽风把空结果钉死 5 分钟。
+        if result["inflow"] or result["outflow"]:
+            self._FUND_FLOW_CACHE["stocks"] = {"ts": now, "data": result}
         return result
 
     def get_sector_fund_flow_top(self, n: int = 5) -> dict:
@@ -458,7 +460,8 @@ class AkshareDataSource(BaseDataSource):
             "inflow": [shape(r) for r in top_in if _to_float(r.get("f62")) and _to_float(r.get("f62")) > 0],
             "outflow": [shape(r) for r in top_out if _to_float(r.get("f62")) and _to_float(r.get("f62")) < 0],
         }
-        self._FUND_FLOW_CACHE["sectors"] = {"ts": now, "data": result}
+        if result["inflow"] or result["outflow"]:
+            self._FUND_FLOW_CACHE["sectors"] = {"ts": now, "data": result}
         return result
 
     def get_fundamentals(self, code: str) -> dict:

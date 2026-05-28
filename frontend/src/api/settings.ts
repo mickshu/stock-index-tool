@@ -23,3 +23,27 @@ export async function saveAiSettings(payload: Partial<AiSettings> & { provider: 
   const { data } = await api.put<AiSettings>('/settings/ai', payload);
   return data;
 }
+
+export interface AiTestResult {
+  llm: {
+    ok: boolean;
+    provider?: string;
+    model?: string;
+    sample?: string;
+    base_url?: string;
+    error?: string;
+  } | null;
+  search: {
+    ok: boolean;
+    provider?: string;
+    results?: number;
+    error?: string;
+  } | null;
+}
+
+export async function testAiSettings(
+  payload: Partial<AiSettings> & { provider: AiProvider },
+): Promise<AiTestResult> {
+  const { data } = await api.post<AiTestResult>('/settings/ai/test', payload);
+  return data;
+}
