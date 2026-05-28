@@ -224,7 +224,7 @@ def _run_openai(settings: dict, user_msg: str) -> tuple[str, str, list[str]]:
         msg = resp.choices[0].message
         if not msg.tool_calls:
             return (msg.content or "").strip(), model, sources
-        messages.append({
+        assistant_msg: dict[str, Any] = {
             "role": "assistant",
             "content": msg.content or "",
             "tool_calls": [
@@ -232,7 +232,17 @@ def _run_openai(settings: dict, user_msg: str) -> tuple[str, str, list[str]]:
                  "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
                 for tc in msg.tool_calls
             ],
-        })
+        }
+        # thinking 模型（DeepSeek-R1 / Qwen3-thinking 等）会返回 reasoning_content，
+        # 多轮工具回传时必须原样回传，否则 API 报 invalid_request_error。
+        raw = msg.model_dump() if hasattr(msg, "model_dump") else {}
+        for key in ("reasoning_content", "reasoning"):
+            val = raw.get(key) if isinstance(raw, dict) else None
+            if val is None:
+                val = getattr(msg, key, None)
+            if val:
+                assistant_msg[key] = val
+        messages.append(assistant_msg)
         for tc in msg.tool_calls:
             try:
                 args = json.loads(tc.function.arguments or "{}")
