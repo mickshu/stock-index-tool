@@ -18,6 +18,7 @@ import KlineChart from '../components/KlineChart';
 import SignalPanel from '../components/SignalPanel';
 import SignalConfluence from '../components/SignalConfluence';
 import FundamentalsCard from '../components/FundamentalsCard';
+import AIAgentCard from '../components/AIAgentCard';
 import { useAnalysisStore } from '../store/analysisStore';
 import { fetchQuote } from '../api/market';
 import type { Period } from '../types';
@@ -100,6 +101,8 @@ export default function StockDetail() {
       {error && <Alert type="error" message={error} style={{ marginBottom: 16 }} />}
 
       <FundamentalsCard code={code} />
+
+      <AIAgentCard code={code} stockName={stockName} />
 
       <SignalConfluence
         signals={signals}
