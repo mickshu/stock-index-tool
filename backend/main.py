@@ -74,6 +74,12 @@ def health():
     return {"status": "ok"}
 
 
+# AI 分析报告静态目录：<repo>/data/reports/，浏览器可直接访问 /reports/xxx.md。
+# 必须挂在 SPA fallback 之前，否则会被 catch-all 抢路由。
+REPORTS_STATIC = Path(__file__).resolve().parent.parent / "data" / "reports"
+REPORTS_STATIC.mkdir(parents=True, exist_ok=True)
+app.mount("/reports", StaticFiles(directory=REPORTS_STATIC, html=False), name="reports")
+
 # 把 frontend 构建产物挂到根路径，并对所有非 /api 路径回退到 index.html，
 # 让 React Router 直接访问 /stock/xxx 等深链接刷新时仍可工作。
 FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"

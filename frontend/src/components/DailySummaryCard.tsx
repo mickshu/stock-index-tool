@@ -6,6 +6,7 @@ import {
   refreshDailySummary,
   type DailySummaryPayload,
 } from '../api/summary';
+import MarkdownView from './MarkdownView';
 
 export default function DailySummaryCard() {
   const [data, setData] = useState<DailySummaryPayload | null>(null);
@@ -84,9 +85,9 @@ export default function DailySummaryCard() {
       <Spin spinning={loading || refreshing}>
         {data ? (
           <>
-            <Typography.Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 8 }}>
-              {data.content}
-            </Typography.Paragraph>
+            <div style={{ marginBottom: 8 }}>
+              <MarkdownView content={data.content} />
+            </div>
             {data.sources && data.sources.length > 0 && (
               <div>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>

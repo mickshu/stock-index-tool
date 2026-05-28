@@ -11,7 +11,10 @@ from backend.services.ai_agent import (
     DEFAULT_TIMEOUT,
     build_prompt,
     detect_agents,
+    list_reports,
+    read_report,
     run_agent,
+    save_report,
 )
 
 logger = logging.getLogger(__name__)
@@ -41,6 +44,20 @@ def analyze(req: AnalyzeRequest):
     except Exception:
         logger.exception("ai-agent analyze failed: agent=%s code=%s", req.agent, req.code)
         raise HTTPException(status_code=500, detail="AI Agent 调用失败")
+
+    report: dict | None = None
+    if result["ok"] and (result.get("output") or "").strip():
+        try:
+            report = save_report(
+                req.code,
+                req.name,
+                req.dimension,
+                result["agent"],
+                result["output"],
+            )
+        except Exception:
+            logger.exception("ai-agent save report failed: code=%s", req.code)
+
     return {
         "agent": result["agent"],
         "ok": result["ok"],
@@ -49,4 +66,21 @@ def analyze(req: AnalyzeRequest):
         "output": result["output"],
         "stderr": result["stderr"] if not result["ok"] else "",
         "prompt": prompt,
+        "report_filename": report["filename"] if report else None,
+        "report_url": report["url"] if report else None,
     }
+
+
+@router.get("/reports")
+def reports(name: str | None = None):
+    """历史报告列表；可选 ?name= 过滤公司名。"""
+    return {"items": list_reports(name)}
+
+
+@router.get("/reports/{filename}")
+def report_content(filename: str):
+    """读取报告 markdown 原文（前端可直接渲染）。"""
+    text = read_report(filename)
+    if text is None:
+        raise HTTPException(status_code=404, detail="report not found")
+    return {"filename": filename, "content": text}

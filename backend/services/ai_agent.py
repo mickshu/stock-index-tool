@@ -12,16 +12,26 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import subprocess
 import time
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 from typing import Sequence
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT = 180  # 秒
 MAX_OUTPUT_CHARS = 64_000
+
+# 报告落盘目录：<repo>/data/reports/，由 FastAPI 静态挂载到 /reports/。
+REPORTS_DIR = Path(__file__).resolve().parents[2] / "data" / "reports"
+REPORT_URL_PREFIX = "/reports"
+
+# 文件名安全字符集：去掉路径分隔符、控制字符、Windows 保留符号。
+_UNSAFE_FILENAME = re.compile(r'[\\/:*?"<>|\x00-\x1f]+')
 
 
 @dataclass(frozen=True)
@@ -56,8 +66,8 @@ AGENTS: list[AgentSpec] = [
         name="hermes",
         label="Hermes",
         binary="hermes",
-        # Hermes 的实际非交互参数后续按需调整；占位先按 -p。
-        prompt_argv=("hermes", "-p"),
+        # Hermes 用 -z PROMPT 进入非交互模式；--yolo 跳过工具确认。
+        prompt_argv=("hermes", "--yolo", "-z"),
     ),
 ]
 
@@ -173,3 +183,88 @@ def run_agent(
         "duration": time.monotonic() - started,
         "exit_code": proc.returncode,
     }
+
+
+def _safe_filename_part(text: str) -> str:
+    cleaned = _UNSAFE_FILENAME.sub("", (text or "").strip())
+    cleaned = cleaned.replace(" ", "")
+    return cleaned[:60] or "unknown"
+
+
+def report_filename(code: str, stock_name: str | None, *, today: str | None = None) -> str:
+    """`日期_公司名.md`；公司名缺失时回退到代码。"""
+    date_str = today or datetime.now().strftime("%Y-%m-%d")
+    name = _safe_filename_part(stock_name or code)
+    return f"{date_str}_{name}.md"
+
+
+def save_report(
+    code: str,
+    stock_name: str | None,
+    dimension: str,
+    agent: str,
+    content: str,
+) -> dict:
+    """落盘 markdown 报告并返回 {filename, url, path}。同名覆盖。"""
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    filename = report_filename(code, stock_name)
+    path = REPORTS_DIR / filename
+    header = (
+        f"# {stock_name or code} · {dimension or '综合'}\n\n"
+        f"- 代码：{code}\n"
+        f"- 维度：{dimension or '综合'}\n"
+        f"- 生成工具：{agent}\n"
+        f"- 生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        f"---\n\n"
+    )
+    path.write_text(header + (content or ""), encoding="utf-8")
+    return {
+        "filename": filename,
+        "url": f"{REPORT_URL_PREFIX}/{filename}",
+        "path": str(path),
+    }
+
+
+def _parse_filename(filename: str) -> dict:
+    """从 `YYYY-MM-DD_name.md` 反解出日期与名字。无法解析时尽力填充。"""
+    stem = filename[:-3] if filename.endswith(".md") else filename
+    parts = stem.split("_", 1)
+    if len(parts) == 2 and re.fullmatch(r"\d{4}-\d{2}-\d{2}", parts[0]):
+        return {"date": parts[0], "name": parts[1]}
+    return {"date": "", "name": stem}
+
+
+def list_reports(name_filter: str | None = None) -> list[dict]:
+    """按 mtime 倒序返回 reports 目录下所有 .md，可选按公司名过滤。"""
+    if not REPORTS_DIR.is_dir():
+        return []
+    items: list[dict] = []
+    needle = _safe_filename_part(name_filter) if name_filter else ""
+    for p in REPORTS_DIR.glob("*.md"):
+        meta = _parse_filename(p.name)
+        if needle and needle not in meta["name"]:
+            continue
+        stat = p.stat()
+        items.append({
+            "filename": p.name,
+            "url": f"{REPORT_URL_PREFIX}/{p.name}",
+            "date": meta["date"],
+            "name": meta["name"],
+            "size": stat.st_size,
+            "mtime": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+        })
+    items.sort(key=lambda x: x["mtime"], reverse=True)
+    return items
+
+
+def read_report(filename: str) -> str | None:
+    """读取报告内容；防穿越目录。文件不存在返回 None。"""
+    if "/" in filename or "\\" in filename or filename.startswith("."):
+        return None
+    path = REPORTS_DIR / filename
+    if not path.is_file():
+        return None
+    try:
+        return path.read_text(encoding="utf-8")
+    except Exception:
+        return None

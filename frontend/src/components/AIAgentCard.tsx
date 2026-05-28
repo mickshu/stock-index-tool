@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   Button,
   Card,
+  Divider,
   Empty,
   Input,
+  List,
   Select,
   Space,
   Spin,
@@ -12,13 +14,23 @@ import {
   Typography,
   message,
 } from 'antd';
-import { ExperimentOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import {
+  ExperimentOutlined,
+  FileMarkdownOutlined,
+  HistoryOutlined,
+  LinkOutlined,
+  ThunderboltOutlined,
+} from '@ant-design/icons';
 import {
   analyzeWithAIAgent,
+  fetchAIAgentReport,
+  listAIAgentReports,
   probeAIAgents,
   type AIAgentAnalyzeResult,
   type AIAgentInfo,
+  type AIAgentReport,
 } from '../api/aiAgent';
+import MarkdownView from './MarkdownView';
 
 interface Props {
   code: string;
@@ -35,6 +47,17 @@ export default function AIAgentCard({ code, stockName }: Props) {
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<AIAgentAnalyzeResult | null>(null);
   const [probeError, setProbeError] = useState<string | null>(null);
+  const [reports, setReports] = useState<AIAgentReport[]>([]);
+  const [viewingReport, setViewingReport] = useState<{ filename: string; content: string } | null>(null);
+  const [viewingLoading, setViewingLoading] = useState(false);
+
+  const reloadReports = useCallback(() => {
+    listAIAgentReports(stockName || undefined)
+      .then(setReports)
+      .catch(() => {
+        // 静默失败，列表不可用不影响主流程
+      });
+  }, [stockName]);
 
   const loadProbe = () => {
     setProbing(true);
@@ -58,6 +81,10 @@ export default function AIAgentCard({ code, stockName }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    reloadReports();
+  }, [reloadReports]);
+
   const handleAnalyze = async () => {
     if (!agent) {
       message.warning('请选择 AI 工具');
@@ -65,6 +92,7 @@ export default function AIAgentCard({ code, stockName }: Props) {
     }
     setRunning(true);
     setResult(null);
+    setViewingReport(null);
     try {
       const data = await analyzeWithAIAgent({
         agent,
@@ -75,6 +103,7 @@ export default function AIAgentCard({ code, stockName }: Props) {
       setResult(data);
       if (data.ok) {
         message.success(`分析完成（${data.duration.toFixed(1)}s）`);
+        reloadReports();
       } else {
         message.error(`分析未成功（exit=${data.exit_code}）`);
       }
@@ -83,6 +112,18 @@ export default function AIAgentCard({ code, stockName }: Props) {
       message.error(detail || '调用失败');
     } finally {
       setRunning(false);
+    }
+  };
+
+  const handleViewReport = async (filename: string) => {
+    setViewingLoading(true);
+    try {
+      const data = await fetchAIAgentReport(filename);
+      setViewingReport(data);
+    } catch {
+      message.error('读取报告失败');
+    } finally {
+      setViewingLoading(false);
     }
   };
 
@@ -172,20 +213,119 @@ export default function AIAgentCard({ code, stockName }: Props) {
                     style={{ marginBottom: 12 }}
                   />
                 )}
-                <Typography.Paragraph
-                  style={{ whiteSpace: 'pre-wrap', marginBottom: 0, fontSize: 13 }}
-                >
-                  {result.output || '（无输出）'}
-                </Typography.Paragraph>
+                {result.report_url && result.report_filename && (
+                  <Alert
+                    type="success"
+                    showIcon
+                    icon={<FileMarkdownOutlined />}
+                    style={{ marginBottom: 12 }}
+                    message={
+                      <Space size={8} wrap>
+                        <span>已保存报告：</span>
+                        <a href={result.report_url} target="_blank" rel="noreferrer">
+                          {result.report_filename}
+                        </a>
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          （同日同股将覆盖）
+                        </Typography.Text>
+                      </Space>
+                    }
+                  />
+                )}
+                {result.output ? (
+                  <MarkdownView content={result.output} />
+                ) : (
+                  <Typography.Text type="secondary">（无输出）</Typography.Text>
+                )}
               </>
             ) : (
-              !running && (
+              !running && !viewingReport && (
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                   选择工具与分析维度后，点击「开始分析」。结果由本地 CLI 直出，可能需要数十秒。
                 </Typography.Text>
               )
             )}
+
+            {viewingReport && !result && (
+              <>
+                <Alert
+                  type="info"
+                  showIcon
+                  icon={<FileMarkdownOutlined />}
+                  style={{ marginBottom: 12 }}
+                  message={
+                    <Space size={8} wrap>
+                      <span>历史报告：</span>
+                      <a
+                        href={`/reports/${encodeURIComponent(viewingReport.filename)}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {viewingReport.filename}
+                      </a>
+                      <Button size="small" type="link" onClick={() => setViewingReport(null)}>
+                        关闭
+                      </Button>
+                    </Space>
+                  }
+                />
+                <MarkdownView content={viewingReport.content} />
+              </>
+            )}
           </Spin>
+
+          <Divider style={{ margin: '16px 0 8px' }} plain>
+            <Space size={6}>
+              <HistoryOutlined />
+              <span style={{ fontSize: 13 }}>历史报告{stockName ? `（${stockName}）` : ''}</span>
+              <Button size="small" type="link" onClick={reloadReports}>
+                刷新
+              </Button>
+            </Space>
+          </Divider>
+          {reports.length === 0 ? (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              暂无历史报告。完成一次分析后会自动保存为 markdown 文件。
+            </Typography.Text>
+          ) : (
+            <Spin spinning={viewingLoading} size="small">
+              <List
+                size="small"
+                dataSource={reports}
+                renderItem={(item) => (
+                  <List.Item
+                    actions={[
+                      <Button
+                        key="view"
+                        type="link"
+                        size="small"
+                        onClick={() => handleViewReport(item.filename)}
+                      >
+                        查看
+                      </Button>,
+                      <a
+                        key="open"
+                        href={item.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ fontSize: 12 }}
+                      >
+                        <LinkOutlined /> 原文
+                      </a>,
+                    ]}
+                  >
+                    <Space size={10} wrap>
+                      <Tag color="blue">{item.date || '—'}</Tag>
+                      <span style={{ fontSize: 13 }}>{item.name}</span>
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        {item.mtime}
+                      </Typography.Text>
+                    </Space>
+                  </List.Item>
+                )}
+              />
+            </Spin>
+          )}
         </>
       )}
     </Card>
