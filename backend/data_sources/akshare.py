@@ -1,5 +1,6 @@
 import logging
 import time
+from datetime import date
 import requests
 import pandas as pd
 import akshare as ak
@@ -144,6 +145,130 @@ class AkshareDataSource(BaseDataSource):
             logger.exception("EastMoney spot fetch failed for %s", code)
             return None
 
+    @staticmethod
+    def _em_secid(code: str) -> str:
+        """6 位 A 股代码 → 东方财富 push2 secid（0=深，1=沪/科创）。"""
+        return f"{'1' if code.startswith(('60', '68', '11', '13')) else '0'}.{code}"
+
+    @staticmethod
+    def _tencent_symbol(code: str) -> str:
+        """6 位 A 股代码 → 腾讯股票接口 symbol（sh/sz 前缀）。"""
+        return f"{'sh' if code.startswith(('60', '68')) else 'sz'}{code}"
+
+    # 上交所/深交所基础信息表内存缓存：上市日期、所属行业；TTL 24h 已足够
+    _LISTING_CACHE: dict = {"ts": 0.0, "sh": {}, "sz": {}}
+    _LISTING_CACHE_TTL = 24 * 3600.0
+
+    def _listing_lookup(self, code: str) -> dict:
+        """从交易所基础信息表查上市日期/行业。失败返回空 dict。"""
+        now = time.monotonic()
+        cache = self._LISTING_CACHE
+        if not cache["sh"] or now - cache["ts"] > self._LISTING_CACHE_TTL:
+            try:
+                sh = ak.stock_info_sh_name_code(symbol="主板A股")
+                sh_kc = ak.stock_info_sh_name_code(symbol="科创板")
+                cache_sh: dict[str, dict] = {}
+                for df in (sh, sh_kc):
+                    if df is None or df.empty:
+                        continue
+                    for _, row in df.iterrows():
+                        cache_sh[str(row.get("证券代码", "")).zfill(6)] = {
+                            "listing_date": str(row.get("上市日期", "") or ""),
+                            "industry": "",
+                        }
+                cache["sh"] = cache_sh
+            except Exception:
+                logger.exception("Listing cache sh fetch failed")
+            try:
+                sz = ak.stock_info_sz_name_code(symbol="A股列表")
+                cache_sz: dict[str, dict] = {}
+                if sz is not None and not sz.empty:
+                    for _, row in sz.iterrows():
+                        cache_sz[str(row.get("A股代码", "")).zfill(6)] = {
+                            "listing_date": str(row.get("A股上市日期", "") or ""),
+                            "industry": str(row.get("所属行业", "") or ""),
+                        }
+                cache["sz"] = cache_sz
+            except Exception:
+                logger.exception("Listing cache sz fetch failed")
+            cache["ts"] = now
+        return cache["sh"].get(code) or cache["sz"].get(code) or {}
+
+    def _tencent_quote(self, code: str) -> list[str] | None:
+        """腾讯实时行情（qt.gtimg.cn）字段更丰富、连接极稳。返回按 ~ 切分的字段列表。
+
+        关键索引（A 股）：
+        1=名称, 3=最新价, 30=时间戳, 32=涨跌幅%, 38=换手率, 39=PE_TTM,
+        44=流通市值(亿元), 45=总市值(亿元), 46=PB, 72=流通股(股), 73=总股本(股)
+        """
+        symbol = self._tencent_symbol(code)
+        try:
+            resp = requests.get(
+                f"http://qt.gtimg.cn/q={symbol}",
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+                    "Referer": "https://stockapp.finance.qq.com/",
+                },
+                timeout=4,
+            )
+            resp.raise_for_status()
+            text = resp.text or ""
+            # 形如: v_sz000001="51~平安银行~000001~10.66~...";
+            if "=" not in text or '"' not in text:
+                return None
+            payload = text.split('"', 2)
+            if len(payload) < 2:
+                return None
+            fields = payload[1].split("~")
+            if len(fields) < 50 or not fields[1]:
+                return None
+            return fields
+        except Exception:
+            logger.exception("Tencent quote fetch failed for %s", code)
+            return None
+
+    def _em_single_quote(self, code: str) -> dict | None:
+        """直连 EastMoney push2 stock/get 拉单股完整行情/估值/股本，绕过 akshare 的不稳定 wrapper。
+
+        字段映射（实测）：f43=最新价, f58=名称, f60=昨收, f84=总股本(股), f85=流通股,
+        f116=总市值, f117=流通市值, f127=所属行业, f163=PE(动), f164=PE(静/TTM),
+        f167=PB, f170=涨跌幅%, f189=上市日期(YYYYMMDD)。
+        """
+        secid = self._em_secid(code)
+        fields = (
+            "f43,f57,f58,f60,f84,f85,f86,f116,f117,f127,"
+            "f162,f163,f164,f167,f168,f170,f173,f189"
+        )
+        url = "https://push2.eastmoney.com/api/qt/stock/get"
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+            ),
+            "Referer": "https://quote.eastmoney.com/",
+        }
+        for attempt in range(2):
+            try:
+                resp = requests.get(
+                    url,
+                    params={"secid": secid, "fields": fields, "fltt": "2", "invt": "2"},
+                    headers=headers,
+                    timeout=4,
+                )
+                resp.raise_for_status()
+                data = (resp.json() or {}).get("data")
+                if isinstance(data, dict) and data:
+                    return data
+                return None
+            except Exception:
+                if attempt == 0:
+                    time.sleep(0.4)
+                    continue
+                logger.exception("EastMoney single quote fetch failed for %s", code)
+                return None
+        return None
+
     def get_realtime_quote(self, code: str) -> dict:
         row = self._get_em_spot_row(code)
         if row is None:
@@ -207,10 +332,13 @@ class AkshareDataSource(BaseDataSource):
                 logger.exception("Baidu valuation fetch failed for %s %s", code, indicator)
 
     def get_fundamentals(self, code: str) -> dict:
-        """合并多源行情/估值/股本数据：
-        - 行业/股本/上市日期/市值：东方财富 stock_individual_info_em
-        - PE/PB/PS/股息率：优先 stock_a_indicator_lg，缺则 EastMoney spot + Baidu 估值序列
-        - 最新价/涨跌幅/PE动/PB/市值：EastMoney spot
+        """合并多源行情/估值/股本数据。akshare 的 stock_individual_info_em / stock_zh_a_spot_em
+        端点对外网偶发 RemoteDisconnected，stock_a_indicator_lg 已被 akshare 移除，故主路径改用
+        EastMoney push2 stock/get 直连：
+
+        - 主源 EM 直连 → 名称/最新价/涨跌幅/PE/PB/总市值/流通市值/总股本/流通股/行业/上市日期
+        - akshare wrapper 兜底 → 上述字段任一缺失时补齐
+        - 百度估值时间序列 → PE_TTM/PS_TTM/股息率(TTM)
         """
         result: dict = {
             "code": code,
@@ -231,74 +359,178 @@ class AkshareDataSource(BaseDataSource):
             "as_of": None,
         }
 
-        try:
-            info_df = ak.stock_individual_info_em(symbol=code)
-            if info_df is not None and not info_df.empty and {"item", "value"}.issubset(info_df.columns):
-                kv = dict(zip(info_df["item"].astype(str), info_df["value"]))
-                result["industry"] = str(kv.get("行业", "") or "")
-                result["total_market_cap"] = _to_float(kv.get("总市值"))
-                result["float_market_cap"] = _to_float(kv.get("流通市值"))
-                result["total_shares"] = _to_float(kv.get("总股本"))
-                result["float_shares"] = _to_float(kv.get("流通股"))
-                listing = kv.get("上市时间")
+        # 主源 1：腾讯实时接口（qt.gtimg.cn）— 字段全 + 连接稳
+        qt = self._tencent_quote(code)
+        if qt:
+            if not result["name"]:
+                result["name"] = qt[1]
+            price = _to_float(qt[3])
+            if price is not None and price > 0:
+                result["price"] = price
+            cp = _to_float(qt[32]) if len(qt) > 32 else None
+            if cp is not None:
+                result["change_pct"] = cp
+            pe_ttm = _to_float(qt[39]) if len(qt) > 39 else None
+            if pe_ttm is not None and pe_ttm != 0:
+                result["pe_ttm"] = pe_ttm
+            pe_static = _to_float(qt[53]) if len(qt) > 53 else None
+            if pe_static is not None and pe_static != 0:
+                result["pe"] = pe_static
+            pb = _to_float(qt[46]) if len(qt) > 46 else None
+            if pb is not None and pb != 0:
+                result["pb"] = pb
+            # 腾讯的市值单位是「亿元」，统一换算回「元」与后端约定一致
+            fmc_yi = _to_float(qt[44]) if len(qt) > 44 else None
+            if fmc_yi is not None and fmc_yi > 0:
+                result["float_market_cap"] = fmc_yi * 1e8
+            tmc_yi = _to_float(qt[45]) if len(qt) > 45 else None
+            if tmc_yi is not None and tmc_yi > 0:
+                result["total_market_cap"] = tmc_yi * 1e8
+            ts_float = _to_float(qt[72]) if len(qt) > 72 else None
+            if ts_float is not None and ts_float > 0:
+                result["float_shares"] = ts_float
+            ts_total = _to_float(qt[73]) if len(qt) > 73 else None
+            if ts_total is not None and ts_total > 0:
+                result["total_shares"] = ts_total
+            # 时间戳格式 YYYYMMDDHHMMSS → as_of 取日期
+            ts = qt[30] if len(qt) > 30 else ""
+            if ts and len(ts) >= 8 and ts[:8].isdigit():
+                result["as_of"] = f"{ts[0:4]}-{ts[4:6]}-{ts[6:8]}"
+
+        # 主源 2：EastMoney push2 stock/get — 补 PE(动)、行业、上市日期（腾讯没有）
+        em = self._em_single_quote(code)
+        if em:
+            if not result["name"]:
+                name = em.get("f58")
+                if name:
+                    result["name"] = str(name)
+            if result["price"] is None:
+                price = _to_float(em.get("f43"))
+                if price is not None and price > 0:
+                    result["price"] = price
+            if result["change_pct"] is None:
+                cp = _to_float(em.get("f170"))
+                if cp is not None:
+                    result["change_pct"] = cp
+            if result["pe"] is None:
+                pe_dyn = _to_float(em.get("f163"))
+                if pe_dyn is not None and pe_dyn != 0:
+                    result["pe"] = pe_dyn
+            if result["pe_ttm"] is None:
+                pe_static = _to_float(em.get("f164"))
+                if pe_static is not None and pe_static != 0:
+                    result["pe_ttm"] = pe_static
+            if result["pb"] is None:
+                pb = _to_float(em.get("f167"))
+                if pb is not None and pb != 0:
+                    result["pb"] = pb
+            if result["total_market_cap"] is None:
+                tmc = _to_float(em.get("f116"))
+                if tmc is not None and tmc > 0:
+                    result["total_market_cap"] = tmc
+            if result["float_market_cap"] is None:
+                fmc = _to_float(em.get("f117"))
+                if fmc is not None and fmc > 0:
+                    result["float_market_cap"] = fmc
+            if result["total_shares"] is None:
+                ts_total = _to_float(em.get("f84"))
+                if ts_total is not None and ts_total > 0:
+                    result["total_shares"] = ts_total
+            if result["float_shares"] is None:
+                ts_float = _to_float(em.get("f85"))
+                if ts_float is not None and ts_float > 0:
+                    result["float_shares"] = ts_float
+            if not result["industry"]:
+                industry = em.get("f127")
+                if industry:
+                    result["industry"] = str(industry)
+            if not result["listing_date"]:
+                listing = em.get("f189")
                 if listing is not None:
                     s = str(listing).strip()
                     if len(s) == 8 and s.isdigit():
                         result["listing_date"] = f"{s[0:4]}-{s[4:6]}-{s[6:8]}"
-                    else:
-                        result["listing_date"] = s
-                name = kv.get("股票简称")
-                if name:
-                    result["name"] = str(name)
-        except Exception:
-            logger.exception("akshare stock_individual_info_em failed for code=%s", code)
 
-        try:
-            ind_df = ak.stock_a_indicator_lg(symbol=code)
-            if ind_df is not None and not ind_df.empty:
-                if "trade_date" in ind_df.columns:
-                    ind_df = ind_df.sort_values("trade_date")
-                last = ind_df.iloc[-1]
-                result["pe"] = _to_float(last.get("pe"))
-                result["pe_ttm"] = _to_float(last.get("pe_ttm"))
-                result["pb"] = _to_float(last.get("pb"))
-                result["ps_ttm"] = _to_float(last.get("ps_ttm"))
-                result["dv_ttm"] = _to_float(last.get("dv_ttm"))
+        # akshare wrapper 兜底：仅在 EM 直连缺失关键字段时调用
+        missing_basics = (
+            not result["industry"]
+            or not result["listing_date"]
+            or result["total_shares"] is None
+            or result["float_shares"] is None
+            or result["total_market_cap"] is None
+            or result["float_market_cap"] is None
+        )
+        if missing_basics:
+            try:
+                info_df = ak.stock_individual_info_em(symbol=code)
+                if (
+                    info_df is not None
+                    and not info_df.empty
+                    and {"item", "value"}.issubset(info_df.columns)
+                ):
+                    kv = dict(zip(info_df["item"].astype(str), info_df["value"]))
+                    if not result["industry"]:
+                        result["industry"] = str(kv.get("行业", "") or "")
+                    if result["total_market_cap"] is None:
+                        result["total_market_cap"] = _to_float(kv.get("总市值"))
+                    if result["float_market_cap"] is None:
+                        result["float_market_cap"] = _to_float(kv.get("流通市值"))
+                    if result["total_shares"] is None:
+                        result["total_shares"] = _to_float(kv.get("总股本"))
+                    if result["float_shares"] is None:
+                        result["float_shares"] = _to_float(kv.get("流通股"))
+                    if not result["listing_date"]:
+                        listing = kv.get("上市时间")
+                        if listing is not None:
+                            s = str(listing).strip()
+                            if len(s) == 8 and s.isdigit():
+                                result["listing_date"] = f"{s[0:4]}-{s[4:6]}-{s[6:8]}"
+                            else:
+                                result["listing_date"] = s
+                    name = kv.get("股票简称")
+                    if name and not result["name"]:
+                        result["name"] = str(name)
+            except Exception:
+                logger.exception("akshare stock_individual_info_em failed for code=%s", code)
+
+        # EastMoney 全量 spot 兜底：当单股 push2 直连失败时再尝试
+        if result["price"] is None or result["change_pct"] is None or result["pe"] is None:
+            spot = self._get_em_spot_row(code)
+            if spot:
+                if not result["name"]:
+                    n = spot.get("名称")
+                    if n:
+                        result["name"] = str(n)
+                price = _to_float(spot.get("最新价"))
+                if price is not None and price > 0 and result["price"] is None:
+                    result["price"] = price
+                cp = _to_float(spot.get("涨跌幅"))
+                if cp is not None and result["change_pct"] is None:
+                    result["change_pct"] = cp
+                if result["pe"] is None:
+                    result["pe"] = _to_float(spot.get("市盈率-动态"))
+                if result["pb"] is None:
+                    result["pb"] = _to_float(spot.get("市净率"))
                 if result["total_market_cap"] is None:
-                    mv = _to_float(last.get("total_mv"))
-                    if mv is not None:
-                        result["total_market_cap"] = mv * 10000
-                ts = last.get("trade_date")
-                if ts is not None:
-                    result["as_of"] = str(ts)
-        except Exception:
-            logger.exception("akshare stock_a_indicator_lg failed for code=%s", code)
+                    result["total_market_cap"] = _to_float(spot.get("总市值"))
+                if result["float_market_cap"] is None:
+                    result["float_market_cap"] = _to_float(spot.get("流通市值"))
 
-        # EastMoney 实时行情：补价格/涨跌幅，并兜底 PE(动)/PB/市值
-        spot = self._get_em_spot_row(code)
-        if spot:
-            if not result["name"]:
-                n = spot.get("名称")
-                if n:
-                    result["name"] = str(n)
-            price = _to_float(spot.get("最新价"))
-            if price is not None and price > 0 and result["price"] is None:
-                result["price"] = price
-            cp = _to_float(spot.get("涨跌幅"))
-            if cp is not None and result["change_pct"] is None:
-                result["change_pct"] = cp
-            if result["pe"] is None:
-                result["pe"] = _to_float(spot.get("市盈率-动态"))
-            if result["pb"] is None:
-                result["pb"] = _to_float(spot.get("市净率"))
-            if result["total_market_cap"] is None:
-                result["total_market_cap"] = _to_float(spot.get("总市值"))
-            if result["float_market_cap"] is None:
-                result["float_market_cap"] = _to_float(spot.get("流通市值"))
-
-        # 百度估值时间序列：补 PE_TTM/PS_TTM/股息率(TTM)（仅在缺失时调用）
+        # 百度估值时间序列：补 PE_TTM/PS_TTM/股息率(TTM)
         if any(result.get(k) is None for k in ("pe_ttm", "ps_ttm", "dv_ttm", "pb")):
             self._fill_baidu_valuation(code, result)
+
+        # 交易所基础信息表兜底：补上市日期/行业
+        if not result["listing_date"] or not result["industry"]:
+            info = self._listing_lookup(code)
+            if info:
+                if not result["listing_date"] and info.get("listing_date"):
+                    result["listing_date"] = info["listing_date"]
+                if not result["industry"] and info.get("industry"):
+                    result["industry"] = info["industry"]
+
+        if not result["as_of"]:
+            result["as_of"] = date.today().isoformat()
 
         return result
 
