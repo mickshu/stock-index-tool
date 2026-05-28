@@ -11,6 +11,7 @@ import {
   Col,
   Checkbox,
   Card,
+  Grid,
 } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import KlineChart from '../components/KlineChart';
@@ -19,6 +20,8 @@ import SignalConfluence from '../components/SignalConfluence';
 import { useAnalysisStore } from '../store/analysisStore';
 import { fetchQuote } from '../api/market';
 import type { Period } from '../types';
+
+const { useBreakpoint } = Grid;
 
 const periodOptions: { label: string; value: Period }[] = [
   { label: '日线', value: 'daily' },
@@ -31,6 +34,8 @@ const periodOptions: { label: string; value: Period }[] = [
 
 export default function StockDetail() {
   const { code } = useParams<{ code: string }>();
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
   const [stockName, setStockName] = useState('');
   const {
     klineData,
@@ -72,19 +77,23 @@ export default function StockDetail() {
 
   return (
     <div>
-      <Space style={{ marginBottom: 16 }} wrap>
-        <Typography.Title level={4} style={{ margin: 0 }}>
-          {title}
-        </Typography.Title>
-        <Segmented
-          options={periodOptions}
-          value={period}
-          onChange={(val) => setPeriod(val as Period)}
-        />
+      <Space style={{ marginBottom: 16 }} wrap direction={isMobile ? 'vertical' : 'horizontal'}>
+        <Space wrap>
+          <Typography.Title level={4} style={{ margin: 0 }}>
+            {title}
+          </Typography.Title>
+          <Segmented
+            options={periodOptions}
+            value={period}
+            onChange={(val) => setPeriod(val as Period)}
+            size={isMobile ? 'small' : 'middle'}
+          />
+        </Space>
         <Button
           icon={<ReloadOutlined />}
           onClick={() => loadAnalysis(code, true)}
           disabled={loading}
+          size={isMobile ? 'small' : 'middle'}
         >
           Refresh
         </Button>
@@ -101,39 +110,23 @@ export default function StockDetail() {
         onSignalClick={(pos) => setHighlightPosition(pos)}
       />
 
-      <Row gutter={16}>
+      <Row gutter={isMobile ? 8 : 16}>
         <Col xs={24} lg={18}>
-          <Card size="small" styles={{ body: { padding: 12 } }}>
-            <div style={{ marginBottom: 8 }}>
+          <Card size="small" styles={{ body: { padding: isMobile ? 8 : 12 } }}>
+            <div style={{ marginBottom: 8, display: 'flex', flexWrap: 'wrap', gap: isMobile ? '8px 12px' : '0 12px' }}>
               <Checkbox checked={showMA} onChange={(e) => setShowMA(e.target.checked)}>
                 MA
               </Checkbox>
-              <Checkbox
-                checked={showMACD}
-                onChange={(e) => setShowMACD(e.target.checked)}
-                style={{ marginLeft: 12 }}
-              >
+              <Checkbox checked={showMACD} onChange={(e) => setShowMACD(e.target.checked)}>
                 MACD
               </Checkbox>
-              <Checkbox
-                checked={showKDJ}
-                onChange={(e) => setShowKDJ(e.target.checked)}
-                style={{ marginLeft: 12 }}
-              >
+              <Checkbox checked={showKDJ} onChange={(e) => setShowKDJ(e.target.checked)}>
                 KDJ
               </Checkbox>
-              <Checkbox
-                checked={showRSI}
-                onChange={(e) => setShowRSI(e.target.checked)}
-                style={{ marginLeft: 12 }}
-              >
+              <Checkbox checked={showRSI} onChange={(e) => setShowRSI(e.target.checked)}>
                 RSI
               </Checkbox>
-              <Checkbox
-                checked={showSignals}
-                onChange={(e) => setShowSignals(e.target.checked)}
-                style={{ marginLeft: 12 }}
-              >
+              <Checkbox checked={showSignals} onChange={(e) => setShowSignals(e.target.checked)}>
                 信号标注
               </Checkbox>
             </div>

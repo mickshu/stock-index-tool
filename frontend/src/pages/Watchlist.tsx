@@ -10,9 +10,12 @@ import {
   message,
   List,
   Tag,
+  Grid,
 } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
+
+const { useBreakpoint } = Grid;
 import type { StockInfo } from '../types';
 import {
   fetchWatchlist,
@@ -23,6 +26,8 @@ import {
 
 export default function Watchlist() {
   const navigate = useNavigate();
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
   const [data, setData] = useState<StockInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -135,7 +140,7 @@ export default function Watchlist() {
 
   return (
     <div>
-      <Space style={{ marginBottom: 16 }}>
+      <Space style={{ marginBottom: 16 }} wrap>
         <Typography.Title level={4} style={{ margin: 0 }}>
           Watchlist
         </Typography.Title>
@@ -153,8 +158,9 @@ export default function Watchlist() {
         columns={columns}
         dataSource={data}
         loading={loading}
-        size="middle"
-        pagination={{ pageSize: 20 }}
+        size={isMobile ? 'small' : 'middle'}
+        pagination={{ pageSize: isMobile ? 10 : 20, size: isMobile ? 'small' : undefined }}
+        scroll={{ x: 520 }}
       />
 
       <Modal

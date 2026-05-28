@@ -13,11 +13,14 @@ import {
   Spin,
   Popover,
   message,
+  Grid,
 } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { runScreener, type ScreenerStockResult } from '../api/screener';
 import type { Signal } from '../types';
+
+const { useBreakpoint } = Grid;
 
 const SIGNAL_CATEGORY_OPTIONS: { label: string; value: string }[] = [
   { label: 'Trend', value: 'trend' },
@@ -72,6 +75,8 @@ function SignalTagsPopover({ signals, limit = 5 }: { signals: Signal[]; limit?: 
 
 export default function Screener() {
   const navigate = useNavigate();
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
 
   const [period, setPeriod] = useState<string>('daily');
   const [categories, setCategories] = useState<string[]>([]);
@@ -185,8 +190,9 @@ export default function Screener() {
           rowKey={(r) => r.code}
           columns={columns}
           dataSource={results}
-          size="middle"
-          pagination={{ pageSize: 20 }}
+          size={isMobile ? 'small' : 'middle'}
+          pagination={{ pageSize: isMobile ? 10 : 20, size: isMobile ? 'small' : undefined }}
+          scroll={{ x: 680 }}
         />
       </>
     );
@@ -194,7 +200,7 @@ export default function Screener() {
 
   return (
     <div>
-      <Space style={{ marginBottom: 16 }}>
+      <Space style={{ marginBottom: 16 }} wrap>
         <Typography.Title level={4} style={{ margin: 0 }}>
           Stock Screener
         </Typography.Title>
@@ -204,14 +210,15 @@ export default function Screener() {
       </Space>
 
       <Card title="Filters" style={{ marginBottom: 16 }}>
-        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-          <div>
-            <Typography.Text strong style={{ marginRight: 12 }}>
+        <Space direction="vertical" size={isMobile ? 'small' : 'middle'} style={{ width: '100%' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+            <Typography.Text strong style={{ marginRight: 4 }}>
               Period:
             </Typography.Text>
             <Segmented
               value={period}
               onChange={(val) => setPeriod(val as string)}
+              size={isMobile ? 'small' : 'middle'}
               options={[
                 { label: 'Daily', value: 'daily' },
                 { label: 'Weekly', value: 'weekly' },
@@ -220,8 +227,8 @@ export default function Screener() {
             />
           </div>
 
-          <div>
-            <Typography.Text strong style={{ marginRight: 12 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+            <Typography.Text strong>
               Signal Categories:
             </Typography.Text>
             <Checkbox.Group
@@ -231,8 +238,8 @@ export default function Screener() {
             />
           </div>
 
-          <div>
-            <Typography.Text strong style={{ marginRight: 12 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+            <Typography.Text strong>
               Signal Levels:
             </Typography.Text>
             <Checkbox.Group
@@ -242,20 +249,21 @@ export default function Screener() {
             />
           </div>
 
-          <div>
-            <Typography.Text strong style={{ marginRight: 12 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+            <Typography.Text strong>
               Recent Days:
             </Typography.Text>
             <Select
               value={recentDays}
               onChange={(val) => setRecentDays(val)}
               style={{ width: 80 }}
+              size={isMobile ? 'small' : 'middle'}
               options={Array.from({ length: 10 }, (_, i) => ({
                 label: `${i + 1}`,
                 value: i + 1,
               }))}
             />
-            <Typography.Text type="secondary" style={{ marginLeft: 8 }}>
+            <Typography.Text type="secondary">
               Signals within last N trading days
             </Typography.Text>
           </div>

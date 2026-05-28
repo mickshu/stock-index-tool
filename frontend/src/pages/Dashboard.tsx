@@ -1,10 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Card, Row, Col, Statistic, Typography, Empty, Button, Result } from 'antd';
+import { Card, Row, Col, Statistic, Typography, Empty, Button, Result, Grid } from 'antd';
 import { ArrowUpOutlined, ArrowDownOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { IndexData } from '../types';
 import { fetchIndices } from '../api/market';
 
+const { useBreakpoint } = Grid;
+
 export default function Dashboard() {
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
   const [indices, setIndices] = useState<IndexData[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,7 +34,7 @@ export default function Dashboard() {
           <Typography.Title level={4} style={{ margin: 0 }}>Market Overview</Typography.Title>
         </Col>
         <Col>
-          <Button icon={<ReloadOutlined />} onClick={load} loading={loading} size="small">
+          <Button icon={<ReloadOutlined />} onClick={load} loading={loading} size={isMobile ? 'small' : 'middle'}>
             Refresh
           </Button>
         </Col>
