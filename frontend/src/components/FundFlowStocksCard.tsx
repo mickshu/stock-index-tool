@@ -31,9 +31,19 @@ function makeColumns(isMobile: boolean): ColumnsType<FundFlowStockItem> {
       title: '名称',
       dataIndex: 'name',
       key: 'name',
-      ellipsis: true,
+      ellipsis: !isMobile,
       onCell: () => ({ style: { padding: isMobile ? '6px 4px' : undefined } }),
       onHeaderCell: () => ({ style: { padding: isMobile ? '6px 4px' : undefined } }),
+      render: (name: string, record: FundFlowStockItem) => {
+        if (!isMobile) return name;
+        const { text, color } = fmtPct(record.change_pct);
+        return (
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, minWidth: 0 }}>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: '1 1 auto', minWidth: 0 }}>{name}</span>
+            <span style={{ color, fontSize: 11, flexShrink: 0 }}>{text}</span>
+          </div>
+        );
+      },
     },
     {
       title: '主力净额',
