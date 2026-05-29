@@ -19,16 +19,33 @@ function fmtPct(v: number | null | undefined): { text: string; color?: string } 
 
 function makeColumns(isMobile: boolean): ColumnsType<FundFlowStockItem> {
   return [
-    { title: '代码', dataIndex: 'code', key: 'code', width: isMobile ? 60 : 80 },
-    { title: '名称', dataIndex: 'name', key: 'name', ellipsis: true, width: isMobile ? 60 : undefined },
+    {
+      title: '代码',
+      dataIndex: 'code',
+      key: 'code',
+      width: isMobile ? 68 : 80,
+      onCell: () => ({ style: { whiteSpace: 'nowrap', padding: isMobile ? '6px 4px 6px 8px' : undefined } }),
+      onHeaderCell: () => ({ style: { padding: isMobile ? '6px 4px 6px 8px' : undefined } }),
+    },
+    {
+      title: '名称',
+      dataIndex: 'name',
+      key: 'name',
+      ellipsis: true,
+      onCell: () => ({ style: { padding: isMobile ? '6px 4px' : undefined } }),
+      onHeaderCell: () => ({ style: { padding: isMobile ? '6px 4px' : undefined } }),
+    },
     {
       title: '主力净额',
       dataIndex: 'main_net',
       key: 'main_net',
       align: 'right',
+      width: isMobile ? 92 : undefined,
+      onCell: () => ({ style: { whiteSpace: 'nowrap', padding: isMobile ? '6px 8px 6px 4px' : undefined } }),
+      onHeaderCell: () => ({ style: { padding: isMobile ? '6px 8px 6px 4px' : undefined } }),
       render: (v: number) => {
         const c = v >= 0 ? '#cf1322' : '#3f8600';
-        return <Typography.Text style={{ color: c }} strong>{fmtYi(v)}</Typography.Text>;
+        return <Typography.Text style={{ color: c, fontSize: isMobile ? 13 : undefined }} strong>{fmtYi(v)}</Typography.Text>;
       },
     },
     ...(!isMobile ? [{
