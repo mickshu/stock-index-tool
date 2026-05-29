@@ -608,7 +608,7 @@ export default function Watchlist() {
       key: 'group',
       width: 200,
       render: (_, record) => (
-        <Space direction="vertical" size={2} style={{ width: '100%' }}>
+        <Space orientation="vertical" size={2} style={{ width: '100%' }}>
           <Select
             size="small"
             style={{ width: 160 }}
@@ -747,10 +747,12 @@ export default function Watchlist() {
           <Typography.Text type="secondary">加入分组：</Typography.Text>
           <Select
             style={{ width: 200, marginLeft: 8 }}
-            value={addTargetGroup}
-            onChange={(val) => setAddTargetGroup(val)}
+            value={addTargetGroup ?? UNGROUPED_KEY}
+            onChange={(val) =>
+              setAddTargetGroup(val === UNGROUPED_KEY ? null : (val as number))
+            }
             options={[
-              { value: null as number | null, label: '未分组' },
+              { value: UNGROUPED_KEY, label: '未分组' },
               ...groups.map((g) => ({ value: g.id, label: g.name })),
             ]}
           />

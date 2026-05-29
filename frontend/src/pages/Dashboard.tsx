@@ -73,9 +73,11 @@ export default function Dashboard() {
                   title={<span style={{ fontSize: isMobile ? 12 : 14 }}>{idx.name}</span>}
                   value={idx.price}
                   precision={2}
-                  valueStyle={{
-                    color: idx.change_pct >= 0 ? '#cf1322' : '#3f8600',
-                    fontSize: isMobile ? 18 : 22,
+                  styles={{
+                    content: {
+                      color: idx.change_pct >= 0 ? '#cf1322' : '#3f8600',
+                      fontSize: isMobile ? 18 : 22,
+                    },
                   }}
                   prefix={idx.change_pct >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
                   suffix={

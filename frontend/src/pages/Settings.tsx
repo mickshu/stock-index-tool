@@ -58,15 +58,15 @@ function DataSourceTab() {
 
   return (
     <Card title="数据源" loading={loading} size="small">
-      <Space direction="vertical" style={{ width: '100%' }}>
-        <Alert type="info" showIcon message="切换上游行情数据源。已缓存的 K 线会继续复用。" />
+      <Space orientation="vertical" style={{ width: '100%' }}>
+        <Alert type="info" showIcon title="切换上游行情数据源。已缓存的 K 线会继续复用。" />
         <Spin spinning={saving}>
           <Radio.Group
             value={active}
             onChange={(e) => handleSwitch(e.target.value)}
             disabled={saving}
           >
-            <Space direction="vertical">
+            <Space orientation="vertical">
               {available.map((src) => (
                 <Radio key={src} value={src}>
                   {src}
@@ -144,7 +144,7 @@ function AiSettingsTab() {
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message="API Key 仅保存在本地数据库；空着不动 = 保留原值。"
+        title="API Key 仅保存在本地数据库；空着不动 = 保留原值。"
       />
       <Form
         form={form}
@@ -157,7 +157,7 @@ function AiSettingsTab() {
           rules={[{ required: true }]}
         >
           <Radio.Group onChange={(e) => setProvider(e.target.value)}>
-            <Space direction={isMobile ? 'vertical' : 'horizontal'}>
+            <Space orientation={isMobile ? 'vertical' : 'horizontal'}>
               <Radio value="openai">OpenAI 兼容</Radio>
               <Radio value="anthropic">Anthropic Claude</Radio>
             </Space>
@@ -189,7 +189,7 @@ function AiSettingsTab() {
 
         <Form.Item name="search_provider" label="联网搜索">
           <Radio.Group onChange={(e) => setSearchProvider(e.target.value)}>
-            <Space direction={isMobile ? 'vertical' : 'horizontal'}>
+            <Space orientation={isMobile ? 'vertical' : 'horizontal'}>
               <Radio value="none">不启用</Radio>
               <Radio value="tavily">Tavily</Radio>
             </Space>
@@ -203,7 +203,7 @@ function AiSettingsTab() {
         )}
 
         <Form.Item>
-          <Space direction={isMobile ? 'vertical' : 'horizontal'} style={{ width: isMobile ? '100%' : undefined }}>
+          <Space orientation={isMobile ? 'vertical' : 'horizontal'} style={{ width: isMobile ? '100%' : undefined }}>
             <Button type="primary" onClick={onSave} loading={saving} block={isMobile}>
               保存
             </Button>
@@ -214,12 +214,12 @@ function AiSettingsTab() {
         </Form.Item>
 
         {testResult && (
-          <Space direction="vertical" style={{ width: '100%' }}>
+          <Space orientation="vertical" style={{ width: '100%' }}>
             {testResult.llm && (
               <Alert
                 type={testResult.llm.ok ? 'success' : 'error'}
                 showIcon
-                message={
+                title={
                   testResult.llm.ok
                     ? `LLM 联通成功：${testResult.llm.provider} / ${testResult.llm.model}`
                     : `LLM 联通失败：${testResult.llm.error}`
@@ -230,7 +230,7 @@ function AiSettingsTab() {
               <Alert
                 type={testResult.search.ok ? 'success' : 'error'}
                 showIcon
-                message={
+                title={
                   testResult.search.ok
                     ? `Tavily 联通成功（${testResult.search.results ?? 0} 条）`
                     : `Tavily 联通失败：${testResult.search.error}`
@@ -249,7 +249,7 @@ export default function Settings() {
   const isMobile = !screens.md;
 
   return (
-    <div>
+    <div style={{ maxWidth: 1100, margin: '0 auto' }}>
       <Typography.Title level={4} style={{ margin: '0 0 16px 0' }}>设置</Typography.Title>
       <Tabs
         size={isMobile ? 'small' : 'middle'}

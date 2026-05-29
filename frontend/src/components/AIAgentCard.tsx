@@ -147,13 +147,13 @@ export default function AIAgentCard({ code, stockName }: Props) {
         </Button>
       }
     >
-      {probeError && <Alert type="error" message={probeError} style={{ marginBottom: 12 }} />}
+      {probeError && <Alert type="error" title={probeError} style={{ marginBottom: 12 }} />}
 
       {agents.length === 0 && !probing ? (
         <Empty description="未检测到本地 AI CLI（claude / codex / gemini / hermes）" image={Empty.PRESENTED_IMAGE_SIMPLE} />
       ) : (
         <>
-          <Space wrap style={{ marginBottom: 12, width: isMobile ? '100%' : undefined }} direction={isMobile ? 'vertical' : 'horizontal'}>
+          <Space wrap style={{ marginBottom: 12, width: isMobile ? '100%' : undefined }} orientation={isMobile ? 'vertical' : 'horizontal'}>
             <Select
               style={{ minWidth: isMobile ? '100%' : 180 }}
               placeholder="选择 AI 工具"
@@ -197,13 +197,13 @@ export default function AIAgentCard({ code, stockName }: Props) {
             </Button>
           </Space>
 
-          <Spin spinning={running} tip="本地 CLI 运行中…">
+          <Spin spinning={running} description="本地 CLI 运行中…">
             {result ? (
               <>
                 {!result.ok && result.stderr && (
                   <Alert
                     type="warning"
-                    message={`exit=${result.exit_code}`}
+                    title={`exit=${result.exit_code}`}
                     description={
                       <pre style={{ whiteSpace: 'pre-wrap', margin: 0, fontSize: 12 }}>
                         {result.stderr}
@@ -218,7 +218,7 @@ export default function AIAgentCard({ code, stockName }: Props) {
                     showIcon
                     icon={<FileMarkdownOutlined />}
                     style={{ marginBottom: 12 }}
-                    message={
+                    title={
                       <Space size={8} wrap>
                         <span>已保存报告：</span>
                         <a href={result.report_url} target="_blank" rel="noreferrer">
@@ -249,7 +249,7 @@ export default function AIAgentCard({ code, stockName }: Props) {
                   showIcon
                   icon={<FileMarkdownOutlined />}
                   style={{ marginBottom: 12 }}
-                  message={
+                  title={
                     <Space size={8} wrap>
                       <span>历史报告：</span>
                       <a

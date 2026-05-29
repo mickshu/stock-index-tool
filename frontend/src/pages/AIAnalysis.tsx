@@ -230,7 +230,7 @@ function NewAnalysis({ onSuccess }: { onSuccess: () => void }) {
 
   return (
     <Card size="small" styles={{ body: { padding: isMobile ? 12 : 16 } }}>
-      {probeErr && <Alert type="error" message={probeErr} style={{ marginBottom: 12 }} />}
+      {probeErr && <Alert type="error" title={probeErr} style={{ marginBottom: 12 }} />}
 
       <div style={{ marginBottom: 16 }}>
         <Typography.Text strong>分析对象</Typography.Text>
@@ -393,7 +393,7 @@ function NewAnalysis({ onSuccess }: { onSuccess: () => void }) {
         开始分析
       </Button>
 
-      <Spin spinning={running} tip="本地 CLI 运行中…" style={{ marginTop: 16, display: 'block' }}>
+      <Spin spinning={running} description="本地 CLI 运行中…" style={{ marginTop: 16, display: 'block' }}>
         {result && (
           <div style={{ marginTop: 16 }}>
             {result.ok ? (
@@ -402,7 +402,7 @@ function NewAnalysis({ onSuccess }: { onSuccess: () => void }) {
                 showIcon
                 icon={<FileMarkdownOutlined />}
                 style={{ marginBottom: 12 }}
-                message={
+                title={
                   <Space size={8} wrap>
                     <span>已保存：</span>
                     <a href={result.url} target="_blank" rel="noreferrer">{result.filename}</a>
@@ -414,7 +414,7 @@ function NewAnalysis({ onSuccess }: { onSuccess: () => void }) {
               <Alert
                 type="warning"
                 style={{ marginBottom: 12 }}
-                message={`未成功（exit=${result.exit_code}）`}
+                title={`未成功（exit=${result.exit_code}）`}
                 description={
                   <pre style={{ whiteSpace: 'pre-wrap', margin: 0, fontSize: 12 }}>{result.stderr}</pre>
                 }
@@ -839,7 +839,7 @@ export default function AIAnalysis() {
   const bump = () => setRefreshKey((k) => k + 1);
 
   return (
-    <div>
+    <div style={{ maxWidth: 1100, margin: '0 auto' }}>
       <Typography.Title level={4} style={{ margin: '0 0 12px' }}>
         <Space size={8}>
           <ExperimentOutlined />
