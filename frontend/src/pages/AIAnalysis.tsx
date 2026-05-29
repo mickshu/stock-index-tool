@@ -49,6 +49,7 @@ import {
 } from '../api/aiAnalysis';
 import { probeAIAgents, type AIAgentInfo } from '../api/aiAgent';
 import MarkdownView from '../components/MarkdownView';
+import StockSearchInput from '../components/StockSearchInput';
 
 const { useBreakpoint } = Grid;
 
@@ -106,6 +107,19 @@ function parseStockLines(text: string): AITarget[] {
       if (m) return { code: m[1].trim(), name: m[2].trim() };
       return { code: line };
     });
+}
+
+// 从 stockText 中删除某只股票（按 code 匹配）
+function removeStockLine(text: string, code: string): string {
+  return text
+    .split(/\r?\n/)
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return false;
+      const m = trimmed.match(/^([A-Za-z0-9.]+)/);
+      return m ? m[1] !== code : true;
+    })
+    .join('\n');
 }
 
 function NewAnalysis({ onSuccess }: { onSuccess: () => void }) {
@@ -231,26 +245,40 @@ function NewAnalysis({ onSuccess }: { onSuccess: () => void }) {
         </div>
 
         {scope === 'single' && (
-          <Space wrap style={{ marginTop: 10, width: '100%' }}>
-            <Input
-              placeholder="股票代码（如 600519）"
+          <div style={{ marginTop: 10 }}>
+            <StockSearchInput
               value={singleCode}
-              onChange={(e) => setSingleCode(e.target.value)}
-              style={{ width: isMobile ? '100%' : 200 }}
-              allowClear
+              onChange={(v) => {
+                setSingleCode(v);
+                if (!v.trim()) setSingleName('');
+              }}
+              onSelect={(stock) => {
+                setSingleCode(stock.code);
+                setSingleName(stock.name);
+              }}
+              style={{ maxWidth: isMobile ? '100%' : 420 }}
             />
-            <Input
-              placeholder="股票名称（可选）"
-              value={singleName}
-              onChange={(e) => setSingleName(e.target.value)}
-              style={{ width: isMobile ? '100%' : 200 }}
-              allowClear
-            />
-          </Space>
+            {singleName && (
+              <Typography.Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: 'inline-block' }}>
+                已选：{singleName}
+              </Typography.Text>
+            )}
+          </div>
         )}
 
         {(scope === 'multi' || scope === 'pick') && (
           <div style={{ marginTop: 10 }}>
+            <div style={{ marginBottom: 8 }}>
+              <StockSearchInput
+                onSelect={(stock) => {
+                  const existing = parseStockLines(stockText);
+                  if (existing.some((t) => t.code === stock.code)) return;
+                  const line = `${stock.code} ${stock.name}`.trim();
+                  setStockText(stockText ? `${stockText.replace(/\s+$/, '')}\n${line}` : line);
+                }}
+                placeholder="搜索股票添加到下方列表（也可直接粘贴多行）"
+              />
+            </div>
             <Input.TextArea
               placeholder={
                 scope === 'multi'
@@ -261,9 +289,38 @@ function NewAnalysis({ onSuccess }: { onSuccess: () => void }) {
               value={stockText}
               onChange={(e) => setStockText(e.target.value)}
             />
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              当前 {parseStockLines(stockText).length} 只
-            </Typography.Text>
+            {(() => {
+              const parsed = parseStockLines(stockText);
+              if (parsed.length === 0) {
+                return (
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    尚未添加股票
+                  </Typography.Text>
+                );
+              }
+              return (
+                <div style={{ marginTop: 6 }}>
+                  <Typography.Text type="secondary" style={{ fontSize: 12, marginRight: 6 }}>
+                    已添加 {parsed.length} 只：
+                  </Typography.Text>
+                  <Space size={[6, 6]} wrap style={{ marginTop: 4 }}>
+                    {parsed.map((t) => (
+                      <Tag
+                        key={t.code}
+                        closable
+                        onClose={(e) => {
+                          e.preventDefault();
+                          setStockText(removeStockLine(stockText, t.code!));
+                        }}
+                        style={{ marginRight: 0 }}
+                      >
+                        {t.code}{t.name ? ` ${t.name}` : ''}
+                      </Tag>
+                    ))}
+                  </Space>
+                </div>
+              );
+            })()}
           </div>
         )}
 

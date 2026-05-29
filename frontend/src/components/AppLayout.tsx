@@ -8,8 +8,9 @@ import {
   ExperimentOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
+import StockSearchInput from './StockSearchInput';
 
-const { Sider, Content } = Layout;
+const { Sider, Header, Content } = Layout;
 const { useBreakpoint } = Grid;
 
 const menuItems = [
@@ -24,8 +25,14 @@ export default function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
+  const [globalQuery, setGlobalQuery] = useState('');
   const screens = useBreakpoint();
   const isMobile = !screens.lg;
+
+  const handleStockSelect = (code: string) => {
+    setGlobalQuery('');
+    navigate(`/stock/${code}`);
+  };
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -53,6 +60,36 @@ export default function AppLayout() {
         </Sider>
       )}
       <Layout style={{ paddingBottom: isMobile ? 56 : 0 }}>
+        <Header
+          style={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 10,
+            background: '#fff',
+            borderBottom: '1px solid #f0f0f0',
+            padding: isMobile ? '8px 12px' : '0 16px',
+            height: isMobile ? 48 : 56,
+            lineHeight: 'normal',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          {isMobile && (
+            <Typography.Text strong style={{ fontSize: 14, whiteSpace: 'nowrap' }}>
+              AI 股票
+            </Typography.Text>
+          )}
+          <div style={{ flex: 1, maxWidth: isMobile ? '100%' : 420 }}>
+            <StockSearchInput
+              value={globalQuery}
+              onChange={setGlobalQuery}
+              onSelect={(stock) => handleStockSelect(stock.code)}
+              placeholder="搜索股票（代码 / 名称 / 拼音）"
+              size={isMobile ? 'small' : 'middle'}
+            />
+          </div>
+        </Header>
         <Content
           style={{
             margin: isMobile ? 0 : 16,

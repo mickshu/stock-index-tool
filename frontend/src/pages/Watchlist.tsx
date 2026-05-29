@@ -3,7 +3,6 @@ import {
   Table,
   Button,
   Modal,
-  AutoComplete,
   Space,
   Popconfirm,
   Typography,
@@ -17,6 +16,7 @@ import {
   Tooltip,
   Empty,
 } from 'antd';
+import StockSearchInput from '../components/StockSearchInput';
 import {
   PlusOutlined,
   EditOutlined,
@@ -36,7 +36,6 @@ import {
   fetchWatchlist,
   addStock,
   deleteStock,
-  searchStocks,
   fetchGroups,
   createGroup,
   renameGroup,
@@ -121,7 +120,6 @@ export default function Watchlist() {
   const [modalOpen, setModalOpen] = useState(false);
   const [keyword, setKeyword] = useState('');
   const [searchResults, setSearchResults] = useState<StockInfo[]>([]);
-  const [searching, setSearching] = useState(false);
   const [addTargetGroup, setAddTargetGroup] = useState<number | null>(null);
 
   const [groupMgrOpen, setGroupMgrOpen] = useState(false);
@@ -228,47 +226,6 @@ export default function Watchlist() {
   useEffect(() => {
     reloadStocks(filter);
   }, [filter]);
-
-  const debounceRef = useRef<number | null>(null);
-  const requestSeqRef = useRef(0);
-
-  useEffect(() => {
-    return () => {
-      if (debounceRef.current != null) window.clearTimeout(debounceRef.current);
-    };
-  }, []);
-
-  const runSearch = (term: string) => {
-    const trimmed = term.trim();
-    if (!trimmed) {
-      setSearchResults([]);
-      setSearching(false);
-      return;
-    }
-    const seq = ++requestSeqRef.current;
-    setSearching(true);
-    searchStocks(trimmed)
-      .then(({ results }) => {
-        if (seq === requestSeqRef.current) setSearchResults(results);
-      })
-      .catch(() => {
-        if (seq === requestSeqRef.current) message.error('搜索失败');
-      })
-      .finally(() => {
-        if (seq === requestSeqRef.current) setSearching(false);
-      });
-  };
-
-  const handleKeywordChange = (value: string) => {
-    setKeyword(value);
-    if (debounceRef.current != null) window.clearTimeout(debounceRef.current);
-    if (!value.trim()) {
-      setSearchResults([]);
-      setSearching(false);
-      return;
-    }
-    debounceRef.current = window.setTimeout(() => runSearch(value), 250);
-  };
 
   const handleAdd = async (stock: StockInfo) => {
     try {
@@ -799,32 +756,15 @@ export default function Watchlist() {
           />
         </div>
 
-        <AutoComplete
-          style={{ width: '100%', marginBottom: 12 }}
-          value={keyword}
-          onChange={handleKeywordChange}
-          onSelect={(value) => {
-            const stock = searchResults.find((s) => s.code === value);
-            if (stock) handleAdd(stock);
-          }}
-          placeholder="输入代码或名称，如 000001 或 平安"
-          notFoundContent={
-            searching ? '搜索中…' : keyword.trim() ? '未找到匹配结果' : null
-          }
-          options={searchResults.map((s) => ({
-            value: s.code,
-            label: (
-              <Space>
-                <Tag>{s.code}</Tag>
-                <span>{s.name}</span>
-                {s.market && (
-                  <Typography.Text type="secondary">[{s.market}]</Typography.Text>
-                )}
-              </Space>
-            ),
-          }))}
-          allowClear
-        />
+        <div style={{ marginBottom: 12 }}>
+          <StockSearchInput
+            value={keyword}
+            onChange={setKeyword}
+            onResultsChange={setSearchResults}
+            onSelect={(stock) => handleAdd(stock)}
+            placeholder="输入代码 / 名称 / 拼音，如 000001 / 平安 / pa"
+          />
+        </div>
 
         <List
           size="small"
