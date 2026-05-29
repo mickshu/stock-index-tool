@@ -52,6 +52,38 @@ def _write_markdown(filename: str, header_meta: dict, content: str) -> Path:
     return path
 
 
+def _empty_output_placeholder(agent: str, run_result: dict) -> str:
+    """Agent 实际输出为空时，把 stderr / 退出码 / 耗时整成一段诊断 markdown，
+    避免详情页只剩头部、正文一片空白让用户无从排查。"""
+    stderr = (run_result.get("stderr") or "").strip()
+    exit_code = run_result.get("exit_code")
+    duration = run_result.get("duration") or 0.0
+    ok = bool(run_result.get("ok"))
+    lines = [
+        "> ⚠️ 本次分析未产生正文输出。以下为运行诊断信息：",
+        "",
+        f"- 工具：`{agent}`",
+        f"- 退出码：`{exit_code if exit_code is not None else '—'}`（{'成功' if ok else '失败/异常'}）",
+        f"- 耗时：{duration:.1f}s",
+    ]
+    if stderr:
+        lines += [
+            "",
+            "**stderr（截断 2000 字符）：**",
+            "",
+            "```text",
+            stderr[-2000:],
+            "```",
+        ]
+    else:
+        lines += [
+            "",
+            "stderr 也为空。常见原因：CLI 把响应输出到了交互式 TUI、被超时打断、或需要登录授权。",
+            "可尝试在终端手动执行同一命令复现，或更换 agent 重新生成。",
+        ]
+    return "\n".join(lines) + "\n"
+
+
 def create_report(
     db: Session,
     *,
@@ -65,6 +97,7 @@ def create_report(
 ) -> AIReport:
     """落盘 markdown + DB 入库。filename 由调用方保证唯一（已带时间戳）。"""
     output = (run_result.get("output") or "").strip()
+    body = output or _empty_output_placeholder(agent, run_result)
     target_label = _label_targets(scope, targets)
     dim_text = "、".join(dimensions) if dimensions else "综合"
     header = {
@@ -75,7 +108,7 @@ def create_report(
         "生成工具": agent,
         "生成时间": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
-    _write_markdown(filename, header, output)
+    _write_markdown(filename, header, body)
 
     row = AIReport(
         scope=scope,

@@ -164,6 +164,37 @@ class AkshareDataSource(BaseDataSource):
         """6 位 A 股代码 → 东方财富 push2 secid（0=深，1=沪/科创）。"""
         return f"{'1' if code.startswith(('60', '68', '11', '13')) else '0'}.{code}"
 
+    # 东方财富 push2 主备 host：实时主机偶尔限流封 IP，延时镜像作为兜底。
+    _EM_HOSTS: tuple = ("push2.eastmoney.com", "push2delay.eastmoney.com")
+    _EM_HEADERS: dict = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+        ),
+        "Referer": "https://quote.eastmoney.com/",
+    }
+
+    @classmethod
+    def _em_get(cls, path: str, params: dict, timeout: float = 6.0) -> dict | None:
+        """按 _EM_HOSTS 顺序请求东方财富 push2 接口；连接错误自动切到延时镜像。"""
+        last_exc: Exception | None = None
+        for host in cls._EM_HOSTS:
+            try:
+                resp = requests.get(
+                    f"https://{host}{path}",
+                    params=params,
+                    headers=cls._EM_HEADERS,
+                    timeout=timeout,
+                )
+                resp.raise_for_status()
+                return resp.json() or {}
+            except Exception as e:
+                last_exc = e
+                continue
+        if last_exc is not None:
+            logger.warning("EastMoney %s failed on all hosts: %s", path, last_exc)
+        return None
+
     @staticmethod
     def _tencent_symbol(code: str) -> str:
         """6 位 A 股代码 → 腾讯股票接口 symbol（sh/sz 前缀）。"""
@@ -254,33 +285,17 @@ class AkshareDataSource(BaseDataSource):
             "f43,f57,f58,f60,f84,f85,f86,f116,f117,f127,"
             "f162,f163,f164,f167,f168,f170,f173,f189"
         )
-        url = "https://push2.eastmoney.com/api/qt/stock/get"
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-            ),
-            "Referer": "https://quote.eastmoney.com/",
-        }
+        params = {"secid": secid, "fields": fields, "fltt": "2", "invt": "2"}
         for attempt in range(2):
-            try:
-                resp = requests.get(
-                    url,
-                    params={"secid": secid, "fields": fields, "fltt": "2", "invt": "2"},
-                    headers=headers,
-                    timeout=4,
-                )
-                resp.raise_for_status()
-                data = (resp.json() or {}).get("data")
+            payload = self._em_get("/api/qt/stock/get", params, timeout=4)
+            if payload is not None:
+                data = (payload or {}).get("data")
                 if isinstance(data, dict) and data:
                     return data
                 return None
-            except Exception:
-                if attempt == 0:
-                    time.sleep(0.4)
-                    continue
-                logger.exception("EastMoney single quote fetch failed for %s", code)
-                return None
+            if attempt == 0:
+                time.sleep(0.4)
+        logger.warning("EastMoney single quote fetch failed for %s", code)
         return None
 
     _EMPTY_QUOTE_EXTRAS: dict = {
@@ -297,27 +312,17 @@ class AkshareDataSource(BaseDataSource):
             return {}
         secids = ",".join(self._em_secid(c) for c in codes)
         fields = "f12,f14,f2,f3,f5,f6,f62,f184"
-        try:
-            resp = requests.get(
-                "https://push2.eastmoney.com/api/qt/ulist.np/get",
-                params={"secids": secids, "fields": fields, "fltt": "2", "invt": "2"},
-                headers={
-                    "User-Agent": (
-                        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-                    ),
-                    "Referer": "https://quote.eastmoney.com/",
-                },
-                timeout=6,
-            )
-            resp.raise_for_status()
-            data = (resp.json() or {}).get("data") or {}
-            diff = data.get("diff") or []
-            if isinstance(diff, dict):
-                diff = list(diff.values())
-        except Exception:
-            logger.exception("EastMoney ulist quote fetch failed for %s", codes)
+        payload = self._em_get(
+            "/api/qt/ulist.np/get",
+            {"secids": secids, "fields": fields, "fltt": "2", "invt": "2"},
+            timeout=6,
+        )
+        if payload is None:
             return {}
+        data = (payload or {}).get("data") or {}
+        diff = data.get("diff") or []
+        if isinstance(diff, dict):
+            diff = list(diff.values())
         out: dict[str, dict] = {}
         for row in diff:
             if not isinstance(row, dict):
@@ -430,31 +435,21 @@ class AkshareDataSource(BaseDataSource):
 
     def _em_clist(self, fs: str, fields: str, pn: int = 1, pz: int = 50, fid: str = "f62", po: int = 1) -> list[dict]:
         """通用 EM push2 clist 拉取。po=1 降序，po=0 升序；按 fid 字段排。"""
-        try:
-            resp = requests.get(
-                "https://push2.eastmoney.com/api/qt/clist/get",
-                params={
-                    "pn": pn, "pz": pz, "po": po, "np": 1, "fltt": 2, "invt": 2,
-                    "fid": fid, "fs": fs, "fields": fields,
-                },
-                headers={
-                    "User-Agent": (
-                        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-                    ),
-                    "Referer": "https://quote.eastmoney.com/",
-                },
-                timeout=6,
-            )
-            resp.raise_for_status()
-            data = (resp.json() or {}).get("data") or {}
-            diff = data.get("diff") or []
-            if isinstance(diff, dict):
-                diff = list(diff.values())
-            return [it for it in diff if isinstance(it, dict)]
-        except Exception:
-            logger.exception("EastMoney clist fetch failed fs=%s", fs)
+        payload = self._em_get(
+            "/api/qt/clist/get",
+            {
+                "pn": pn, "pz": pz, "po": po, "np": 1, "fltt": 2, "invt": 2,
+                "fid": fid, "fs": fs, "fields": fields,
+            },
+            timeout=6,
+        )
+        if payload is None:
             return []
+        data = (payload or {}).get("data") or {}
+        diff = data.get("diff") or []
+        if isinstance(diff, dict):
+            diff = list(diff.values())
+        return [it for it in diff if isinstance(it, dict)]
 
     @staticmethod
     def _ts_to_date(ts: float | int | None) -> str | None:
