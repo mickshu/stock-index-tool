@@ -11,6 +11,13 @@ import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 const { Sider, Content } = Layout;
 const { useBreakpoint } = Grid;
 
+const menuItems = [
+  { key: '/', icon: <BarChartOutlined />, label: '行情' },
+  { key: '/stocks', icon: <StarOutlined />, label: '自选' },
+  { key: '/screener', icon: <SearchOutlined />, label: '选股' },
+  { key: '/settings', icon: <SettingOutlined />, label: '设置' },
+];
+
 export default function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -18,52 +25,88 @@ export default function AppLayout() {
   const screens = useBreakpoint();
   const isMobile = !screens.lg;
 
-  const menuItems = [
-    { key: '/', icon: <BarChartOutlined />, label: '仪表盘' },
-    { key: '/stocks', icon: <StarOutlined />, label: '自选股' },
-    { key: '/screener', icon: <SearchOutlined />, label: '选股扫描' },
-    { key: '/settings', icon: <SettingOutlined />, label: '设置' },
-  ];
-
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      <Sider
-        breakpoint="lg"
-        collapsedWidth={isMobile ? 0 : 80}
-        collapsible
-        collapsed={collapsed}
-        onCollapse={(value) => setCollapsed(value)}
-        trigger={isMobile ? null : undefined}
-      >
-        <Typography.Title
-          level={5}
-          style={{ color: 'white', textAlign: 'center', margin: '16px 0' }}
+      {!isMobile && (
+        <Sider
+          breakpoint="lg"
+          collapsedWidth={80}
+          collapsible
+          collapsed={collapsed}
+          onCollapse={(value) => setCollapsed(value)}
         >
-          {collapsed ? '股' : '股票分析'}
-        </Typography.Title>
-        <Menu
-          theme="dark"
-          mode="inline"
-          selectedKeys={[location.pathname]}
-          items={menuItems}
-          onClick={({ key }) => {
-            navigate(key);
-            if (isMobile) setCollapsed(true);
-          }}
-        />
-      </Sider>
-      <Layout>
+          <Typography.Title
+            level={5}
+            style={{ color: 'white', textAlign: 'center', margin: '16px 0' }}
+          >
+            {collapsed ? '股' : '股票分析'}
+          </Typography.Title>
+          <Menu
+            theme="dark"
+            mode="inline"
+            selectedKeys={[location.pathname]}
+            items={menuItems}
+            onClick={({ key }) => navigate(key)}
+          />
+        </Sider>
+      )}
+      <Layout style={{ paddingBottom: isMobile ? 56 : 0 }}>
         <Content
           style={{
-            margin: isMobile ? 8 : 16,
+            margin: isMobile ? 0 : 16,
             padding: isMobile ? 12 : 24,
-            background: '#fff',
-            borderRadius: 8,
+            background: isMobile ? '#f5f5f5' : '#fff',
+            borderRadius: isMobile ? 0 : 8,
+            minHeight: 'calc(100vh - 48px)',
           }}
         >
           <Outlet />
         </Content>
       </Layout>
+
+      {isMobile && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: 56,
+            background: '#fff',
+            borderTop: '1px solid #f0f0f0',
+            display: 'flex',
+            justifyContent: 'space-around',
+            alignItems: 'center',
+            zIndex: 100,
+            boxShadow: '0 -2px 8px rgba(0,0,0,0.06)',
+          }}
+        >
+          {menuItems.map((item) => {
+            const active = location.pathname === item.key;
+            return (
+              <div
+                key={item.key}
+                onClick={() => navigate(item.key)}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 2,
+                  cursor: 'pointer',
+                  color: active ? '#1677ff' : '#999',
+                  fontSize: 10,
+                  flex: 1,
+                  padding: '4px 0',
+                  transition: 'color 0.2s',
+                }}
+              >
+                <span style={{ fontSize: 20 }}>{item.icon}</span>
+                <span>{item.label}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </Layout>
   );
 }

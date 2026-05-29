@@ -11,6 +11,7 @@ import {
   Tabs,
   Typography,
   message,
+  Grid,
 } from 'antd';
 import { fetchDataSources, switchDataSource } from '../api/stocks';
 import {
@@ -22,6 +23,8 @@ import {
   type AiTestResult,
   type SearchProvider,
 } from '../api/settings';
+
+const { useBreakpoint } = Grid;
 
 function DataSourceTab() {
   const [active, setActive] = useState<string>('');
@@ -36,7 +39,7 @@ function DataSourceTab() {
         setActive(d.active);
         setAvailable(d.available);
       })
-      .catch(() => message.error('Failed to load data sources'))
+      .catch(() => message.error('加载数据源失败'))
       .finally(() => setLoading(false));
   }, []);
 
@@ -45,16 +48,16 @@ function DataSourceTab() {
     try {
       const r = await switchDataSource(source);
       setActive(r.active);
-      message.success(`Switched to ${r.active}`);
+      message.success(`已切换至 ${r.active}`);
     } catch {
-      message.error('Switch failed');
+      message.error('切换失败');
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <Card title="数据源" loading={loading}>
+    <Card title="数据源" loading={loading} size="small">
       <Space direction="vertical" style={{ width: '100%' }}>
         <Alert type="info" showIcon message="切换上游行情数据源。已缓存的 K 线会继续复用。" />
         <Spin spinning={saving}>
@@ -78,6 +81,8 @@ function DataSourceTab() {
 }
 
 function AiSettingsTab() {
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
   const [form] = Form.useForm<AiSettings>();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -123,7 +128,7 @@ function AiSettingsTab() {
       if (r.llm?.ok && (r.search === null || r.search?.ok)) {
         message.success('测试通过');
       } else {
-        message.warning('测试未全部通过，详见下方结果');
+        message.warning('测试未全部通过');
       }
     } catch (e) {
       const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
@@ -134,16 +139,16 @@ function AiSettingsTab() {
   };
 
   return (
-    <Card title="AI 配置" loading={loading}>
+    <Card title="AI 配置" loading={loading} size="small">
       <Alert
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message="API Key 仅保存在本地数据库；接口返回时会脱敏为 ****后4位。空着不动 = 保留原值。"
+        message="API Key 仅保存在本地数据库；空着不动 = 保留原值。"
       />
       <Form
         form={form}
-        layout="vertical"
+        layout={isMobile ? 'vertical' : 'vertical'}
         initialValues={{ provider: 'openai', search_provider: 'none' }}
       >
         <Form.Item
@@ -152,15 +157,17 @@ function AiSettingsTab() {
           rules={[{ required: true }]}
         >
           <Radio.Group onChange={(e) => setProvider(e.target.value)}>
-            <Radio value="openai">OpenAI 兼容</Radio>
-            <Radio value="anthropic">Anthropic Claude</Radio>
+            <Space direction={isMobile ? 'vertical' : 'horizontal'}>
+              <Radio value="openai">OpenAI 兼容</Radio>
+              <Radio value="anthropic">Anthropic Claude</Radio>
+            </Space>
           </Radio.Group>
         </Form.Item>
 
         {provider === 'openai' ? (
           <>
             <Form.Item name="openai_base_url" label="OpenAI Base URL">
-              <Input placeholder="https://api.openai.com/v1 或 https://api.deepseek.com/v1" />
+              <Input placeholder="https://api.openai.com/v1" />
             </Form.Item>
             <Form.Item name="openai_api_key" label="OpenAI API Key">
               <Input.Password autoComplete="off" placeholder="留空 = 保留原值" />
@@ -175,15 +182,17 @@ function AiSettingsTab() {
               <Input.Password autoComplete="off" placeholder="留空 = 保留原值" />
             </Form.Item>
             <Form.Item name="anthropic_model" label="Model">
-              <Input placeholder="如 claude-sonnet-4-6、claude-opus-4-7" />
+              <Input placeholder="如 claude-sonnet-4-6" />
             </Form.Item>
           </>
         )}
 
         <Form.Item name="search_provider" label="联网搜索">
           <Radio.Group onChange={(e) => setSearchProvider(e.target.value)}>
-            <Radio value="none">不启用</Radio>
-            <Radio value="tavily">Tavily</Radio>
+            <Space direction={isMobile ? 'vertical' : 'horizontal'}>
+              <Radio value="none">不启用</Radio>
+              <Radio value="tavily">Tavily</Radio>
+            </Space>
           </Radio.Group>
         </Form.Item>
 
@@ -194,11 +203,11 @@ function AiSettingsTab() {
         )}
 
         <Form.Item>
-          <Space>
-            <Button type="primary" onClick={onSave} loading={saving}>
+          <Space direction={isMobile ? 'vertical' : 'horizontal'} style={{ width: isMobile ? '100%' : undefined }}>
+            <Button type="primary" onClick={onSave} loading={saving} block={isMobile}>
               保存
             </Button>
-            <Button onClick={onTest} loading={testing}>
+            <Button onClick={onTest} loading={testing} block={isMobile}>
               测试联调
             </Button>
           </Space>
@@ -215,13 +224,6 @@ function AiSettingsTab() {
                     ? `LLM 联通成功：${testResult.llm.provider} / ${testResult.llm.model}`
                     : `LLM 联通失败：${testResult.llm.error}`
                 }
-                description={
-                  testResult.llm.ok
-                    ? testResult.llm.sample
-                      ? `示例响应：${testResult.llm.sample}`
-                      : undefined
-                    : undefined
-                }
               />
             )}
             {testResult.search && (
@@ -230,7 +232,7 @@ function AiSettingsTab() {
                 showIcon
                 message={
                   testResult.search.ok
-                    ? `Tavily 联通成功（返回 ${testResult.search.results ?? 0} 条结果）`
+                    ? `Tavily 联通成功（${testResult.search.results ?? 0} 条）`
                     : `Tavily 联通失败：${testResult.search.error}`
                 }
               />
@@ -243,11 +245,14 @@ function AiSettingsTab() {
 }
 
 export default function Settings() {
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
+
   return (
     <div>
-      <Typography.Title level={4}>设置</Typography.Title>
+      <Typography.Title level={4} style={{ margin: '0 0 16px 0' }}>设置</Typography.Title>
       <Tabs
-        defaultActiveKey="data"
+        size={isMobile ? 'small' : 'middle'}
         items={[
           { key: 'data', label: '数据源', children: <DataSourceTab /> },
           { key: 'ai', label: 'AI 配置', children: <AiSettingsTab /> },

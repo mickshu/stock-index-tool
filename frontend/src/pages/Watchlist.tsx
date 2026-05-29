@@ -78,6 +78,8 @@ export default function Watchlist() {
     }
   };
 
+  const quoteSeqRef = useRef(0);
+
   const reloadStocks = async (current: GroupFilter = filter) => {
     setLoading(true);
     try {
@@ -111,8 +113,6 @@ export default function Watchlist() {
       setLoading(false);
     }
   };
-
-  const quoteSeqRef = useRef(0);
 
   useEffect(() => {
     reloadGroups();
@@ -166,7 +166,7 @@ export default function Watchlist() {
   const handleAdd = async (stock: StockInfo) => {
     try {
       await addStock(stock.code, stock.name, stock.market || 'A', addTargetGroup);
-      message.success(`Added ${stock.code}`);
+      message.success(`已添加 ${stock.name}`);
       setModalOpen(false);
       setKeyword('');
       setSearchResults([]);
@@ -174,19 +174,19 @@ export default function Watchlist() {
       reloadStocks();
     } catch (e) {
       const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      message.error(detail || 'Failed to add stock');
+      message.error(detail || '添加失败');
     }
   };
 
   const handleDelete = async (id: number) => {
     try {
       await deleteStock(id);
-      message.success('Removed');
+      message.success('已移除');
       reloadGroups();
       reloadStocks();
     } catch (e) {
       const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      message.error(detail || 'Failed to delete');
+      message.error(detail || '删除失败');
     }
   };
 
@@ -255,7 +255,145 @@ export default function Watchlist() {
 
   const totalCount = ungroupedCount + groups.reduce((sum, g) => sum + (g.count ?? 0), 0);
 
-  const columns = [
+  const filterLabel =
+    filter === ALL_KEY
+      ? '全部'
+      : filter === UNGROUPED_KEY
+      ? '未分组'
+      : groupNameById.get(filter as number) || '分组';
+
+  const groupMenuItems = [
+    { key: ALL_KEY, label: <Space>全部 <Tag>{totalCount}</Tag></Space> },
+    { key: UNGROUPED_KEY, label: <Space>未分组 <Tag>{ungroupedCount}</Tag></Space> },
+    ...(groups.length ? [{ type: 'divider' as const }] : []),
+    ...groups.map((g) => ({
+      key: String(g.id),
+      label: (
+        <Row justify="space-between" align="middle" wrap={false}>
+          <Col flex="auto" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {renamingId === g.id ? (
+              <Input
+                size="small"
+                autoFocus
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onPressEnter={() => handleRenameGroup(g.id)}
+                onBlur={() => handleRenameGroup(g.id)}
+                onClick={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <span>{g.name}</span>
+            )}
+          </Col>
+          <Col>
+            <Space size={0}>
+              <Tag style={{ marginRight: 4 }}>{g.count ?? 0}</Tag>
+              <Button
+                type="text"
+                size="small"
+                icon={<EditOutlined />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setRenamingId(g.id);
+                  setRenameValue(g.name);
+                }}
+              />
+              <Popconfirm
+                title={`删除分组「${g.name}」？组内股票将变为未分组`}
+                onConfirm={(e) => {
+                  e?.stopPropagation();
+                  handleDeleteGroup(g.id);
+                }}
+                onCancel={(e) => e?.stopPropagation()}
+              >
+                <Button
+                  type="text"
+                  size="small"
+                  danger
+                  icon={<DeleteOutlined />}
+                  onClick={(e) => e.stopPropagation()}
+                />
+              </Popconfirm>
+            </Space>
+          </Col>
+        </Row>
+      ),
+    })),
+  ];
+
+  // Mobile card list
+  const renderMobileList = () => {
+    if (data.length === 0 && !loading) {
+      return <Empty description="该分组暂无股票" />;
+    }
+    return (
+      <List
+        loading={loading}
+        dataSource={data}
+        renderItem={(record) => {
+          const q = quotes[record.code];
+          const changeColor = q?.change_pct != null
+            ? q.change_pct > 0 ? '#cf1322' : q.change_pct < 0 ? '#3f8600' : undefined
+            : undefined;
+          return (
+            <div
+              style={{
+                background: '#fff',
+                borderRadius: 8,
+                padding: '10px 12px',
+                marginBottom: 8,
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <Typography.Text strong style={{ fontSize: 15 }}>{record.name}</Typography.Text>
+                  <Typography.Text type="secondary" style={{ fontSize: 12, marginLeft: 6 }}>{record.code}</Typography.Text>
+                </div>
+                <Space size={4}>
+                  <Button type="link" size="small" onClick={() => navigate(`/stock/${record.code}`)}>
+                    分析
+                  </Button>
+                  <Popconfirm
+                    title="从自选股移除？"
+                    onConfirm={() => record.id != null && handleDelete(record.id)}
+                  >
+                    <Button type="link" size="small" danger>删</Button>
+                  </Popconfirm>
+                </Space>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 4 }}>
+                <Typography.Text strong style={{ fontSize: 18, color: changeColor }}>
+                  {q && q.price > 0 ? q.price.toFixed(2) : '—'}
+                </Typography.Text>
+                {q?.change_pct != null && (
+                  <Typography.Text strong style={{ color: changeColor, fontSize: 14 }}>
+                    {q.change_pct > 0 ? '+' : ''}{q.change_pct.toFixed(2)}%
+                  </Typography.Text>
+                )}
+              </div>
+              {groups.length > 0 && (
+                <div style={{ marginTop: 6 }}>
+                  <Select
+                    size="small"
+                    style={{ width: 120 }}
+                    value={record.group_id ?? null}
+                    onChange={(val) => record.id != null && handleMoveStock(record.id, val)}
+                    options={[
+                      { value: null as number | null, label: '未分组' },
+                      ...groups.map((g) => ({ value: g.id, label: g.name })),
+                    ]}
+                  />
+                </div>
+              )}
+            </div>
+          );
+        }}
+      />
+    );
+  };
+
+  // Desktop table
+  const desktopColumns = [
     { title: '代码', dataIndex: 'code', key: 'code', width: 90 },
     { title: '名称', dataIndex: 'name', key: 'name' },
     {
@@ -283,7 +421,6 @@ export default function Watchlist() {
         return <Typography.Text strong style={{ color }}>{`${sign}${v.toFixed(2)}%`}</Typography.Text>;
       },
     },
-    { title: '市场', dataIndex: 'market', key: 'market', width: 70 },
     {
       title: '分组',
       key: 'group',
@@ -304,7 +441,7 @@ export default function Watchlist() {
     {
       title: '操作',
       key: 'actions',
-      width: 160,
+      width: 120,
       render: (_: unknown, record: StockInfo) => (
         <Space>
           <Button type="link" size="small" onClick={() => navigate(`/stock/${record.code}`)}>
@@ -314,26 +451,22 @@ export default function Watchlist() {
             title="从自选股移除？"
             onConfirm={() => record.id != null && handleDelete(record.id)}
           >
-            <Button type="link" size="small" danger>
-              删除
-            </Button>
+            <Button type="link" size="small" danger>删除</Button>
           </Popconfirm>
         </Space>
       ),
     },
   ];
 
-  const filterLabel =
-    filter === ALL_KEY
-      ? '全部'
-      : filter === UNGROUPED_KEY
-      ? '未分组'
-      : groupNameById.get(filter as number) || '分组';
-
   return (
-    <Row gutter={isMobile ? 8 : 16}>
+    <Row gutter={isMobile ? 0 : 16}>
       <Col xs={24} md={6} lg={5}>
-        <Card size="small" title={<Space><AppstoreOutlined />分组</Space>} styles={{ body: { padding: 0 } }}>
+        <Card
+          size="small"
+          title={<Space><AppstoreOutlined />分组</Space>}
+          styles={{ body: { padding: 0 } }}
+          style={{ marginBottom: isMobile ? 12 : 0 }}
+        >
           <Menu
             mode="inline"
             selectedKeys={[String(filter)]}
@@ -341,64 +474,7 @@ export default function Watchlist() {
               if (key === ALL_KEY || key === UNGROUPED_KEY) setFilter(key as GroupFilter);
               else setFilter(Number(key));
             }}
-            items={[
-              { key: ALL_KEY, label: <Space>全部 <Tag>{totalCount}</Tag></Space> },
-              { key: UNGROUPED_KEY, label: <Space>未分组 <Tag>{ungroupedCount}</Tag></Space> },
-              ...(groups.length ? [{ type: 'divider' as const }] : []),
-              ...groups.map((g) => ({
-                key: String(g.id),
-                label: (
-                  <Row justify="space-between" align="middle" wrap={false}>
-                    <Col flex="auto" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {renamingId === g.id ? (
-                        <Input
-                          size="small"
-                          autoFocus
-                          value={renameValue}
-                          onChange={(e) => setRenameValue(e.target.value)}
-                          onPressEnter={() => handleRenameGroup(g.id)}
-                          onBlur={() => handleRenameGroup(g.id)}
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                      ) : (
-                        <span>{g.name}</span>
-                      )}
-                    </Col>
-                    <Col>
-                      <Space size={0}>
-                        <Tag style={{ marginRight: 4 }}>{g.count ?? 0}</Tag>
-                        <Button
-                          type="text"
-                          size="small"
-                          icon={<EditOutlined />}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setRenamingId(g.id);
-                            setRenameValue(g.name);
-                          }}
-                        />
-                        <Popconfirm
-                          title={`删除分组「${g.name}」？组内股票将变为未分组`}
-                          onConfirm={(e) => {
-                            e?.stopPropagation();
-                            handleDeleteGroup(g.id);
-                          }}
-                          onCancel={(e) => e?.stopPropagation()}
-                        >
-                          <Button
-                            type="text"
-                            size="small"
-                            danger
-                            icon={<DeleteOutlined />}
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        </Popconfirm>
-                      </Space>
-                    </Col>
-                  </Row>
-                ),
-              })),
-            ]}
+            items={groupMenuItems}
           />
           <div style={{ padding: 8, borderTop: '1px solid #f0f0f0' }}>
             <Space.Compact style={{ width: '100%' }}>
@@ -425,7 +501,7 @@ export default function Watchlist() {
       </Col>
 
       <Col xs={24} md={18} lg={19}>
-        <Space style={{ marginBottom: 16 }} wrap>
+        <Space style={{ marginBottom: isMobile ? 12 : 16 }} wrap>
           <Typography.Title level={4} style={{ margin: 0 }}>
             自选股 · {filterLabel}
           </Typography.Title>
@@ -436,23 +512,28 @@ export default function Watchlist() {
               setAddTargetGroup(typeof filter === 'number' ? (filter as number) : null);
               setModalOpen(true);
             }}
+            block={isMobile}
           >
             添加股票
           </Button>
         </Space>
 
-        {data.length === 0 && !loading ? (
-          <Empty description="该分组暂无股票" />
+        {isMobile ? (
+          renderMobileList()
         ) : (
-          <Table
-            rowKey={(r) => String(r.id ?? r.code)}
-            columns={columns}
-            dataSource={data}
-            loading={loading}
-            size={isMobile ? 'small' : 'middle'}
-            pagination={{ pageSize: isMobile ? 10 : 20, size: isMobile ? 'small' : undefined }}
-            scroll={{ x: 520 }}
-          />
+          data.length === 0 && !loading ? (
+            <Empty description="该分组暂无股票" />
+          ) : (
+            <Table
+              rowKey={(r) => String(r.id ?? r.code)}
+              columns={desktopColumns}
+              dataSource={data}
+              loading={loading}
+              size="middle"
+              pagination={{ pageSize: 20 }}
+              scroll={{ x: 520 }}
+            />
+          )
         )}
 
         <Modal

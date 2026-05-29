@@ -13,12 +13,12 @@ import {
   Tag,
   Typography,
   message,
+  Grid,
 } from 'antd';
 import {
   ExperimentOutlined,
   FileMarkdownOutlined,
   HistoryOutlined,
-  LinkOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import {
@@ -32,6 +32,8 @@ import {
 } from '../api/aiAgent';
 import MarkdownView from './MarkdownView';
 
+const { useBreakpoint } = Grid;
+
 interface Props {
   code: string;
   stockName?: string;
@@ -40,6 +42,8 @@ interface Props {
 const DIMENSION_PRESETS = ['综合', '技术面', '基本面', '主力资金', '行业对比', '风险点'];
 
 export default function AIAgentCard({ code, stockName }: Props) {
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
   const [agents, setAgents] = useState<AIAgentInfo[]>([]);
   const [agent, setAgent] = useState<string | undefined>(undefined);
   const [dimension, setDimension] = useState('综合');
@@ -54,9 +58,7 @@ export default function AIAgentCard({ code, stockName }: Props) {
   const reloadReports = useCallback(() => {
     listAIAgentReports(stockName || undefined)
       .then(setReports)
-      .catch(() => {
-        // 静默失败，列表不可用不影响主流程
-      });
+      .catch(() => {});
   }, [stockName]);
 
   const loadProbe = () => {
@@ -78,7 +80,6 @@ export default function AIAgentCard({ code, stockName }: Props) {
 
   useEffect(() => {
     loadProbe();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -132,17 +133,12 @@ export default function AIAgentCard({ code, stockName }: Props) {
   return (
     <Card
       size="small"
-      style={{ marginTop: 16 }}
+      style={{ marginTop: isMobile ? 8 : 16 }}
       title={
-        <Space wrap>
+        <Space wrap size={6}>
           <ExperimentOutlined />
-          <span>本地 AI 分析</span>
-          {currentAgent && <Tag color="purple">{currentAgent.label}</Tag>}
-          {currentAgent?.version && (
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              {currentAgent.version}
-            </Typography.Text>
-          )}
+          <span>AI 分析</span>
+          {currentAgent && <Tag color="purple" style={{ marginRight: 0 }}>{currentAgent.label}</Tag>}
         </Space>
       }
       extra={
@@ -154,12 +150,12 @@ export default function AIAgentCard({ code, stockName }: Props) {
       {probeError && <Alert type="error" message={probeError} style={{ marginBottom: 12 }} />}
 
       {agents.length === 0 && !probing ? (
-        <Empty description="未检测到本地 AI CLI（claude / codex / gemini / hermes）。请先在终端中安装并确保命令在 PATH 中。" />
+        <Empty description="未检测到本地 AI CLI（claude / codex / gemini / hermes）" image={Empty.PRESENTED_IMAGE_SIMPLE} />
       ) : (
         <>
-          <Space wrap style={{ marginBottom: 12 }}>
+          <Space wrap style={{ marginBottom: 12, width: isMobile ? '100%' : undefined }} direction={isMobile ? 'vertical' : 'horizontal'}>
             <Select
-              style={{ minWidth: 180 }}
+              style={{ minWidth: isMobile ? '100%' : 180 }}
               placeholder="选择 AI 工具"
               value={agent}
               onChange={setAgent}
@@ -170,7 +166,7 @@ export default function AIAgentCard({ code, stockName }: Props) {
               }))}
             />
             <Select
-              style={{ minWidth: 140 }}
+              style={{ minWidth: isMobile ? '100%' : 140 }}
               value={DIMENSION_PRESETS.includes(dimension) ? dimension : '自定义'}
               onChange={(v) => {
                 if (v !== '自定义') setDimension(v);
@@ -180,25 +176,28 @@ export default function AIAgentCard({ code, stockName }: Props) {
                 { value: '自定义', label: '自定义…' },
               ]}
             />
-            <Input
-              style={{ minWidth: 220 }}
-              placeholder="自定义分析维度（如：估值与同行对比）"
-              value={dimension}
-              onChange={(e) => setDimension(e.target.value)}
-              allowClear
-            />
+            {(!DIMENSION_PRESETS.includes(dimension)) && (
+              <Input
+                style={{ minWidth: isMobile ? '100%' : 220 }}
+                placeholder="自定义分析维度"
+                value={dimension}
+                onChange={(e) => setDimension(e.target.value)}
+                allowClear
+              />
+            )}
             <Button
               type="primary"
               icon={<ThunderboltOutlined />}
               loading={running}
               onClick={handleAnalyze}
               disabled={!agent}
+              block={isMobile}
             >
               开始分析
             </Button>
           </Space>
 
-          <Spin spinning={running} tip="本地 CLI 运行中，可能需要较久…">
+          <Spin spinning={running} tip="本地 CLI 运行中…">
             {result ? (
               <>
                 {!result.ok && result.stderr && (
@@ -225,9 +224,6 @@ export default function AIAgentCard({ code, stockName }: Props) {
                         <a href={result.report_url} target="_blank" rel="noreferrer">
                           {result.report_filename}
                         </a>
-                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                          （同日同股将覆盖）
-                        </Typography.Text>
                       </Space>
                     }
                   />
@@ -241,7 +237,7 @@ export default function AIAgentCard({ code, stockName }: Props) {
             ) : (
               !running && !viewingReport && (
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  选择工具与分析维度后，点击「开始分析」。结果由本地 CLI 直出，可能需要数十秒。
+                  选择工具与维度后点击「开始分析」
                 </Typography.Text>
               )
             )}
@@ -274,57 +270,46 @@ export default function AIAgentCard({ code, stockName }: Props) {
             )}
           </Spin>
 
-          <Divider style={{ margin: '16px 0 8px' }} plain>
-            <Space size={6}>
-              <HistoryOutlined />
-              <span style={{ fontSize: 13 }}>历史报告{stockName ? `（${stockName}）` : ''}</span>
-              <Button size="small" type="link" onClick={reloadReports}>
-                刷新
-              </Button>
-            </Space>
-          </Divider>
-          {reports.length === 0 ? (
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              暂无历史报告。完成一次分析后会自动保存为 markdown 文件。
-            </Typography.Text>
-          ) : (
-            <Spin spinning={viewingLoading} size="small">
-              <List
-                size="small"
-                dataSource={reports}
-                renderItem={(item) => (
-                  <List.Item
-                    actions={[
-                      <Button
-                        key="view"
-                        type="link"
-                        size="small"
-                        onClick={() => handleViewReport(item.filename)}
-                      >
-                        查看
-                      </Button>,
-                      <a
-                        key="open"
-                        href={item.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{ fontSize: 12 }}
-                      >
-                        <LinkOutlined /> 原文
-                      </a>,
-                    ]}
-                  >
-                    <Space size={10} wrap>
-                      <Tag color="blue">{item.date || '—'}</Tag>
-                      <span style={{ fontSize: 13 }}>{item.name}</span>
-                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                        {item.mtime}
-                      </Typography.Text>
-                    </Space>
-                  </List.Item>
-                )}
-              />
-            </Spin>
+          {reports.length > 0 && (
+            <>
+              <Divider style={{ margin: '12px 0 8px' }} plain>
+                <Space size={6}>
+                  <HistoryOutlined />
+                  <span style={{ fontSize: 12 }}>历史报告{stockName ? `（${stockName}）` : ''}</span>
+                </Space>
+              </Divider>
+              <Spin spinning={viewingLoading} size="small">
+                <List
+                  size="small"
+                  dataSource={reports}
+                  renderItem={(item) => (
+                    <List.Item
+                      style={{ padding: '6px 0' }}
+                      actions={[
+                        <Button
+                          key="view"
+                          type="link"
+                          size="small"
+                          onClick={() => handleViewReport(item.filename)}
+                        >
+                          查看
+                        </Button>,
+                      ]}
+                    >
+                      <Space size={8} wrap>
+                        <Tag color="blue" style={{ marginRight: 0 }}>{item.date || '—'}</Tag>
+                        <span style={{ fontSize: 13 }}>{item.name}</span>
+                        {!isMobile && (
+                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                            {item.mtime}
+                          </Typography.Text>
+                        )}
+                      </Space>
+                    </List.Item>
+                  )}
+                />
+              </Spin>
+            </>
           )}
         </>
       )}

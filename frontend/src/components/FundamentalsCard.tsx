@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Card, Descriptions, Spin, Typography, Tag, Tooltip, Space } from 'antd';
+import { Card, Descriptions, Spin, Typography, Tag, Tooltip, Space, Grid } from 'antd';
 import { fetchFundamentals, type Fundamentals } from '../api/market';
+
+const { useBreakpoint } = Grid;
 
 interface Props {
   code: string;
@@ -35,6 +37,8 @@ function formatPct(v: number | null | undefined): string {
 }
 
 export default function FundamentalsCard({ code }: Props) {
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
   const [data, setData] = useState<Fundamentals | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,7 +69,7 @@ export default function FundamentalsCard({ code }: Props) {
     <Space size={8}>
       <span>关键指标</span>
       {data?.industry && <Tag color="blue">{data.industry}</Tag>}
-      {data?.as_of && (
+      {!isMobile && data?.as_of && (
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
           数据日期 {data.as_of}
         </Typography.Text>
@@ -77,7 +81,7 @@ export default function FundamentalsCard({ code }: Props) {
   const changeColor = change == null ? undefined : change > 0 ? '#cf1322' : change < 0 ? '#3f8600' : undefined;
 
   return (
-    <Card size="small" title={titleNode} style={{ marginBottom: 12 }}>
+    <Card size="small" title={titleNode} style={{ marginBottom: isMobile ? 8 : 12 }}>
       <Spin spinning={loading}>
         {error ? (
           <Typography.Text type="danger">{error}</Typography.Text>
@@ -112,11 +116,11 @@ export default function FundamentalsCard({ code }: Props) {
             <Descriptions.Item label={<Tooltip title="股息率 TTM">股息率</Tooltip>}>
               {formatPct(data?.dv_ttm)}
             </Descriptions.Item>
-            <Descriptions.Item label="总市值">{formatBigYuan(data?.total_market_cap)}</Descriptions.Item>
-            <Descriptions.Item label="流通市值">{formatBigYuan(data?.float_market_cap)}</Descriptions.Item>
-            <Descriptions.Item label="总股本">{formatBigShares(data?.total_shares)}</Descriptions.Item>
-            <Descriptions.Item label="流通股">{formatBigShares(data?.float_shares)}</Descriptions.Item>
-            <Descriptions.Item label="上市日期">{data?.listing_date || '—'}</Descriptions.Item>
+            {!isMobile && <Descriptions.Item label="总市值">{formatBigYuan(data?.total_market_cap)}</Descriptions.Item>}
+            {!isMobile && <Descriptions.Item label="流通市值">{formatBigYuan(data?.float_market_cap)}</Descriptions.Item>}
+            {!isMobile && <Descriptions.Item label="总股本">{formatBigShares(data?.total_shares)}</Descriptions.Item>}
+            {!isMobile && <Descriptions.Item label="流通股">{formatBigShares(data?.float_shares)}</Descriptions.Item>}
+            {!isMobile && <Descriptions.Item label="上市日期">{data?.listing_date || '—'}</Descriptions.Item>}
           </Descriptions>
         )}
       </Spin>

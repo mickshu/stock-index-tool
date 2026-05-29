@@ -1,7 +1,9 @@
 import { useMemo } from 'react';
-import { Collapse, Empty, List, Popover, Space, Tag, Tooltip, Typography } from 'antd';
+import { Collapse, Empty, List, Popover, Space, Tag, Typography, Grid } from 'antd';
 import { InfoCircleOutlined, WarningOutlined } from '@ant-design/icons';
 import type { Signal, SignalCategory, SignalLevel } from '../types';
+
+const { useBreakpoint } = Grid;
 
 interface Props {
   signals: Signal[];
@@ -73,15 +75,15 @@ function indicatorEnabled(
 
 function SignalDetail({ signal }: { signal: Signal }) {
   return (
-    <div style={{ maxWidth: 320 }}>
-      <Typography.Paragraph style={{ marginBottom: 8 }}>
+    <div style={{ maxWidth: 280 }}>
+      <Typography.Paragraph style={{ marginBottom: 8, fontSize: 12 }}>
         <InfoCircleOutlined style={{ color: '#1677ff', marginRight: 6 }} />
         <Typography.Text strong>解释：</Typography.Text>
         {signal.explanation || '—'}
       </Typography.Paragraph>
-      <Typography.Paragraph style={{ marginBottom: 0 }}>
+      <Typography.Paragraph style={{ marginBottom: 0, fontSize: 12 }}>
         <WarningOutlined style={{ color: '#faad14', marginRight: 6 }} />
-        <Typography.Text strong>误导说明：</Typography.Text>
+        <Typography.Text strong>误导：</Typography.Text>
         {signal.caveat || '—'}
       </Typography.Paragraph>
     </div>
@@ -96,6 +98,9 @@ export default function SignalPanel({
   showKDJ = true,
   showRSI = true,
 }: Props) {
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
+
   const grouped = useMemo(() => {
     const map = new Map<SignalCategory, Signal[]>();
     const filtered = signals.filter((s) => indicatorEnabled(s, showMA, showMACD, showKDJ, showRSI));
@@ -111,12 +116,12 @@ export default function SignalPanel({
   const totalShown = Array.from(grouped.values()).reduce((sum, list) => sum + list.length, 0);
 
   if (signals.length === 0) {
-    return <Empty description="暂无识别到的技术信号" image={Empty.PRESENTED_IMAGE_SIMPLE} />;
+    return <Empty description="暂无信号" image={Empty.PRESENTED_IMAGE_SIMPLE} />;
   }
   if (totalShown === 0) {
     return (
       <Empty
-        description="勾选 MA / MACD / KDJ / RSI 后将在此显示对应信号"
+        description="勾选指标后显示对应信号"
         image={Empty.PRESENTED_IMAGE_SIMPLE}
       />
     );
@@ -127,33 +132,16 @@ export default function SignalPanel({
     const meta = CATEGORY_META[cat];
     const bull = list.filter((s) => inferLevel(s) === 'bullish').length;
     const bear = list.filter((s) => inferLevel(s) === 'bearish').length;
-    const neut = list.length - bull - bear;
     return {
       key: cat,
       label: (
         <Space size={6} wrap>
           <Tag color={meta.color} style={{ marginRight: 0 }}>{meta.label}</Tag>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            {list.length} 条
+            {list.length}
           </Typography.Text>
-          {bull > 0 && (
-            <Typography.Text style={{ fontSize: 12, color: LEVEL_COLOR.bullish }}>
-              ↑{bull}
-            </Typography.Text>
-          )}
-          {bear > 0 && (
-            <Typography.Text style={{ fontSize: 12, color: LEVEL_COLOR.bearish }}>
-              ↓{bear}
-            </Typography.Text>
-          )}
-          {neut > 0 && (
-            <Typography.Text style={{ fontSize: 12, color: LEVEL_COLOR.neutral }}>
-              ·{neut}
-            </Typography.Text>
-          )}
-          <Tooltip title={meta.desc}>
-            <InfoCircleOutlined style={{ color: '#999' }} />
-          </Tooltip>
+          {bull > 0 && <Typography.Text style={{ fontSize: 12, color: LEVEL_COLOR.bullish }}>↑{bull}</Typography.Text>}
+          {bear > 0 && <Typography.Text style={{ fontSize: 12, color: LEVEL_COLOR.bearish }}>↓{bear}</Typography.Text>}
         </Space>
       ),
       children: (
@@ -165,45 +153,37 @@ export default function SignalPanel({
             const color = LEVEL_COLOR[lvl];
             return (
               <List.Item
-                style={{ cursor: onSignalClick ? 'pointer' : 'default', padding: '6px 0' }}
+                style={{ cursor: onSignalClick ? 'pointer' : 'default', padding: isMobile ? '4px 0' : '6px 0' }}
                 onClick={() => onSignalClick?.(s.position ?? 0)}
               >
                 <div style={{ width: '100%' }}>
-                  <Space size={6} align="center" wrap>
+                  <Space size={4} align="center" wrap>
                     <span
                       style={{
                         display: 'inline-block',
-                        width: 7,
-                        height: 7,
+                        width: 6,
+                        height: 6,
                         borderRadius: '50%',
                         backgroundColor: color,
                       }}
                     />
-                    <Typography.Text style={{ fontSize: 12, color: '#888' }}>
+                    <Typography.Text style={{ fontSize: 11, color: '#888' }}>
                       {s.date}
                     </Typography.Text>
-                    <Typography.Text strong style={{ color }}>
+                    <Typography.Text strong style={{ color, fontSize: 13 }}>
                       {s.name || s.type}
                     </Typography.Text>
-                    <Tag style={{ marginRight: 0, fontSize: 11, lineHeight: '16px' }}>
-                      {s.indicator}
-                    </Tag>
                     <Popover
                       content={<SignalDetail signal={s} />}
                       title={s.name || s.type}
                       trigger="click"
                     >
                       <InfoCircleOutlined
-                        style={{ color: '#1677ff', cursor: 'pointer' }}
+                        style={{ color: '#1677ff', cursor: 'pointer', fontSize: 12 }}
                         onClick={(e) => e.stopPropagation()}
                       />
                     </Popover>
                   </Space>
-                  <div style={{ marginLeft: 13 }}>
-                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                      {s.description}
-                    </Typography.Text>
-                  </div>
                 </div>
               </List.Item>
             );

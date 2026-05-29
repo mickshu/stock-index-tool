@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, Card, Empty, Space, Spin, Tag, Typography, message } from 'antd';
+import { Button, Card, Empty, Space, Spin, Tag, Typography, message, Grid } from 'antd';
 import { ReloadOutlined, OpenAIOutlined } from '@ant-design/icons';
 import {
   fetchDailySummary,
@@ -8,7 +8,11 @@ import {
 } from '../api/summary';
 import MarkdownView from './MarkdownView';
 
+const { useBreakpoint } = Grid;
+
 export default function DailySummaryCard() {
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
   const [data, setData] = useState<DailySummaryPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -59,15 +63,10 @@ export default function DailySummaryCard() {
     <Card
       size="small"
       title={
-        <Space wrap>
+        <Space wrap size={6}>
           <OpenAIOutlined />
           <span>AI 收盘总结</span>
-          {data?.model && <Tag color="purple">{data.model}</Tag>}
-          {data?.generated_at && (
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              生成于 {data.generated_at.replace('T', ' ')}
-            </Typography.Text>
-          )}
+          {data?.model && <Tag color="purple" style={{ marginRight: 0 }}>{data.model}</Tag>}
         </Space>
       }
       extra={
@@ -77,26 +76,24 @@ export default function DailySummaryCard() {
           loading={refreshing}
           onClick={handleRefresh}
         >
-          {data ? '重新生成' : '生成总结'}
+          {data ? '重新生成' : '生成'}
         </Button>
       }
-      style={{ marginTop: 16 }}
+      style={{ marginTop: isMobile ? 12 : 16 }}
     >
       <Spin spinning={loading || refreshing}>
         {data ? (
           <>
-            <div style={{ marginBottom: 8 }}>
-              <MarkdownView content={data.content} />
-            </div>
-            {data.sources && data.sources.length > 0 && (
-              <div>
+            <MarkdownView content={data.content} />
+            {!isMobile && data.sources && data.sources.length > 0 && (
+              <div style={{ marginTop: 8 }}>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                   信息来源：
                 </Typography.Text>
                 <ul style={{ marginTop: 4, paddingLeft: 18 }}>
                   {data.sources.map((u) => (
                     <li key={u}>
-                      <a href={u} target="_blank" rel="noreferrer">
+                      <a href={u} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>
                         {u}
                       </a>
                     </li>
@@ -106,7 +103,7 @@ export default function DailySummaryCard() {
             )}
           </>
         ) : (
-          <Empty description={hint || '点击右上角「生成总结」'} />
+          <Empty description={hint || '点击「生成」获取今日总结'} image={Empty.PRESENTED_IMAGE_SIMPLE} />
         )}
       </Spin>
     </Card>

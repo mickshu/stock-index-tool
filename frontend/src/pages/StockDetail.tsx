@@ -7,13 +7,12 @@ import {
   Segmented,
   Button,
   Space,
-  Row,
-  Col,
-  Checkbox,
   Card,
   Grid,
   Tabs,
   Empty,
+  Drawer,
+  Checkbox,
 } from 'antd';
 import { ReloadOutlined, ThunderboltOutlined, ExperimentOutlined } from '@ant-design/icons';
 import KlineChart from '../components/KlineChart';
@@ -41,6 +40,7 @@ export default function StockDetail() {
   const isMobile = !screens.md;
   const [stockName, setStockName] = useState('');
   const [activeTab, setActiveTab] = useState<AnalysisTabKey>('signal');
+  const [signalDrawerOpen, setSignalDrawerOpen] = useState(false);
   const {
     klineData,
     signals,
@@ -73,16 +73,18 @@ export default function StockDetail() {
     }
   }, [code]);
 
-  if (!code) return <Alert type="error" message="No stock code provided" />;
+  if (!code) return <Alert type="error" message="未提供股票代码" />;
 
-  const chartHeight = 450 + ([showMACD, showKDJ, showRSI].filter(Boolean).length * 110);
+  const chartHeight = isMobile
+    ? 350 + ([showMACD, showKDJ, showRSI].filter(Boolean).length * 80)
+    : 450 + ([showMACD, showKDJ, showRSI].filter(Boolean).length * 110);
 
   const title = stockName ? `${code} ${stockName}` : code;
 
   return (
     <div>
-      <Space style={{ marginBottom: 16 }} wrap direction={isMobile ? 'vertical' : 'horizontal'}>
-        <Space wrap>
+      <Space style={{ marginBottom: isMobile ? 12 : 16 }} wrap direction={isMobile ? 'vertical' : 'horizontal'} size={8}>
+        <Space wrap size={8}>
           <Typography.Title level={4} style={{ margin: 0 }}>
             {title}
           </Typography.Title>
@@ -99,11 +101,11 @@ export default function StockDetail() {
           disabled={loading}
           size={isMobile ? 'small' : 'middle'}
         >
-          Refresh
+          刷新
         </Button>
       </Space>
 
-      {error && <Alert type="error" message={error} style={{ marginBottom: 16 }} />}
+      {error && <Alert type="error" message={error} style={{ marginBottom: 12 }} />}
 
       <FundamentalsCard code={code} />
 
@@ -156,54 +158,77 @@ export default function StockDetail() {
         />
       </Card>
 
-      <Row gutter={isMobile ? 8 : 16}>
-        <Col xs={24} lg={18}>
-          <Card size="small" styles={{ body: { padding: isMobile ? 8 : 12 } }}>
-            <div style={{ marginBottom: 8, display: 'flex', flexWrap: 'wrap', gap: isMobile ? '8px 12px' : '0 12px' }}>
-              <Checkbox checked={showMA} onChange={(e) => setShowMA(e.target.checked)}>
-                MA
-              </Checkbox>
-              <Checkbox checked={showMACD} onChange={(e) => setShowMACD(e.target.checked)}>
-                MACD
-              </Checkbox>
-              <Checkbox checked={showKDJ} onChange={(e) => setShowKDJ(e.target.checked)}>
-                KDJ
-              </Checkbox>
-              <Checkbox checked={showRSI} onChange={(e) => setShowRSI(e.target.checked)}>
-                RSI
-              </Checkbox>
-              <Checkbox checked={showSignals} onChange={(e) => setShowSignals(e.target.checked)}>
-                信号标注
-              </Checkbox>
-            </div>
-            <Spin spinning={loading}>
-              <KlineChart
-                klineData={klineData}
-                height={chartHeight}
-                showMA={showMA}
-                showMACD={showMACD}
-                showKDJ={showKDJ}
-                showRSI={showRSI}
-                signals={signals}
-                showSignals={showSignals}
-                highlightPosition={highlightPosition}
-              />
-            </Spin>
-          </Card>
-        </Col>
-        <Col xs={24} lg={6}>
-          <Card size="small" title="Signals">
-            <SignalPanel
-              signals={signals}
-              onSignalClick={(pos) => setHighlightPosition(pos)}
-              showMA={showMA}
-              showMACD={showMACD}
-              showKDJ={showKDJ}
-              showRSI={showRSI}
-            />
-          </Card>
-        </Col>
-      </Row>
+      <Card
+        size="small"
+        title="K线图"
+        extra={
+          isMobile ? (
+            <Button size="small" type="link" onClick={() => setSignalDrawerOpen(true)}>
+              信号面板
+            </Button>
+          ) : null
+        }
+        styles={{ body: { padding: isMobile ? 8 : 12 } }}
+        style={{ marginBottom: isMobile ? 8 : 0 }}
+      >
+        <div style={{ marginBottom: 8, display: 'flex', flexWrap: 'wrap', gap: isMobile ? '4px 12px' : '0 12px' }}>
+          <Checkbox checked={showMA} onChange={(e) => setShowMA(e.target.checked)}>MA</Checkbox>
+          <Checkbox checked={showMACD} onChange={(e) => setShowMACD(e.target.checked)}>MACD</Checkbox>
+          <Checkbox checked={showKDJ} onChange={(e) => setShowKDJ(e.target.checked)}>KDJ</Checkbox>
+          <Checkbox checked={showRSI} onChange={(e) => setShowRSI(e.target.checked)}>RSI</Checkbox>
+          <Checkbox checked={showSignals} onChange={(e) => setShowSignals(e.target.checked)}>信号标注</Checkbox>
+        </div>
+        <Spin spinning={loading}>
+          <KlineChart
+            klineData={klineData}
+            height={chartHeight}
+            showMA={showMA}
+            showMACD={showMACD}
+            showKDJ={showKDJ}
+            showRSI={showRSI}
+            signals={signals}
+            showSignals={showSignals}
+            highlightPosition={highlightPosition}
+          />
+        </Spin>
+      </Card>
+
+      {/* Desktop: signal panel below chart */}
+      {!isMobile && (
+        <Card size="small" title="信号列表" style={{ marginTop: 16 }}>
+          <SignalPanel
+            signals={signals}
+            onSignalClick={(pos) => setHighlightPosition(pos)}
+            showMA={showMA}
+            showMACD={showMACD}
+            showKDJ={showKDJ}
+            showRSI={showRSI}
+          />
+        </Card>
+      )}
+
+      {/* Mobile: signal panel as bottom drawer */}
+      {isMobile && (
+        <Drawer
+          title="信号列表"
+          placement="bottom"
+          height="70vh"
+          open={signalDrawerOpen}
+          onClose={() => setSignalDrawerOpen(false)}
+        >
+          <SignalPanel
+            signals={signals}
+            onSignalClick={(pos) => {
+              setHighlightPosition(pos);
+              setSignalDrawerOpen(false);
+            }}
+            showMA={showMA}
+            showMACD={showMACD}
+            showKDJ={showKDJ}
+            showRSI={showRSI}
+          />
+        </Drawer>
+      )}
     </div>
   );
 }

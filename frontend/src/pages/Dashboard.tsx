@@ -22,9 +22,9 @@ export default function Dashboard() {
     fetchIndices()
       .then((data) => {
         setIndices(data);
-        if (data.length === 0) setError('No index data available — data source may be unreachable');
+        if (data.length === 0) setError('暂无指数数据，数据源可能不可用');
       })
-      .catch(() => setError('Failed to load indices'))
+      .catch(() => setError('加载指数数据失败'))
       .finally(() => setLoading(false));
   }, []);
 
@@ -32,54 +32,54 @@ export default function Dashboard() {
 
   return (
     <div>
-      <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
+      <Row justify="space-between" align="middle" style={{ marginBottom: isMobile ? 12 : 16 }}>
         <Col>
-          <Typography.Title level={4} style={{ margin: 0 }}>Market Overview</Typography.Title>
+          <Typography.Title level={4} style={{ margin: 0 }}>行情总览</Typography.Title>
         </Col>
         <Col>
           <Button icon={<ReloadOutlined />} onClick={load} loading={loading} size={isMobile ? 'small' : 'middle'}>
-            Refresh
+            刷新
           </Button>
         </Col>
       </Row>
 
       {loading && indices.length === 0 ? (
-        <Row gutter={16}>
+        <Row gutter={[12, 12]}>
           {[1, 2, 3, 4].map((i) => (
-            <Col xs={24} sm={12} md={6} key={i}>
-              <Card loading style={{ minHeight: 120 }} />
+            <Col xs={12} sm={12} md={6} key={i}>
+              <Card loading style={{ minHeight: 100 }} />
             </Col>
           ))}
         </Row>
       ) : error && indices.length === 0 ? (
         <Result
           status="warning"
-          title="Index Data Unavailable"
+          title="指数数据不可用"
           subTitle={error}
           extra={
             <Button type="primary" icon={<ReloadOutlined />} onClick={load} loading={loading}>
-              Retry
+              重试
             </Button>
           }
         />
       ) : indices.length === 0 ? (
-        <Empty description="No index data" />
+        <Empty description="暂无指数数据" />
       ) : (
-        <Row gutter={16}>
+        <Row gutter={[12, 12]}>
           {indices.map((idx) => (
-            <Col xs={24} sm={12} md={6} key={idx.code}>
-              <Card>
+            <Col xs={12} sm={12} md={6} key={idx.code}>
+              <Card size="small" styles={{ body: { padding: isMobile ? '12px 12px' : undefined } }}>
                 <Statistic
-                  title={idx.name}
+                  title={<span style={{ fontSize: isMobile ? 12 : 14 }}>{idx.name}</span>}
                   value={idx.price}
                   precision={2}
                   valueStyle={{
                     color: idx.change_pct >= 0 ? '#cf1322' : '#3f8600',
-                    fontSize: 22,
+                    fontSize: isMobile ? 18 : 22,
                   }}
                   prefix={idx.change_pct >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
                   suffix={
-                    <span style={{ fontSize: 14, fontWeight: 500 }}>
+                    <span style={{ fontSize: isMobile ? 11 : 14, fontWeight: 500 }}>
                       {idx.change_pct >= 0 ? '+' : ''}{idx.change_pct.toFixed(2)}%
                     </span>
                   }

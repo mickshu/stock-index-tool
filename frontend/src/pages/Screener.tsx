@@ -197,22 +197,22 @@ export default function Screener() {
         <Space size={8} wrap>
           <Typography.Text strong>{group.date}</Typography.Text>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            {group.rows.length} 只股票
+            {group.rows.length} 只
           </Typography.Text>
           {group.bullishCount > 0 && <Tag color="green">多 {group.bullishCount}</Tag>}
           {group.bearishCount > 0 && <Tag color="red">空 {group.bearishCount}</Tag>}
         </Space>
       ),
       children: (
-        <Space direction="vertical" size={isMobile ? 8 : 10} style={{ width: '100%' }}>
+        <Space direction="vertical" size={isMobile ? 6 : 10} style={{ width: '100%' }}>
           {group.rows.map(({ stock, signals }) => (
             <div
               key={`${group.date}-${stock.code}`}
               style={{
                 display: 'flex',
                 flexDirection: isMobile ? 'column' : 'row',
-                gap: isMobile ? 6 : 12,
-                padding: isMobile ? '6px 0' : '8px 0',
+                gap: isMobile ? 4 : 12,
+                padding: isMobile ? '4px 0' : '8px 0',
                 borderBottom: '1px dashed rgba(0,0,0,0.06)',
               }}
             >
@@ -268,7 +268,7 @@ export default function Screener() {
     }
 
     if (!hasScanned) {
-      return <Empty description="设置筛选条件后点击「扫描」开始查找股票" />;
+      return <Empty description="设置筛选条件后点击「扫描」" />;
     }
 
     if (results.length === 0) {
@@ -277,8 +277,8 @@ export default function Screener() {
 
     return (
       <>
-        <Typography.Text type="secondary" style={{ marginBottom: 12, display: 'block' }}>
-          已扫描 {summary.total_stocks_screened} 只股票，命中 {summary.total_matches} 只，
+        <Typography.Text type="secondary" style={{ marginBottom: 12, display: 'block', fontSize: isMobile ? 12 : undefined }}>
+          已扫描 {summary.total_stocks_screened} 只，命中 {summary.total_matches} 只，
           覆盖 {dateGroups.length} 个交易日
         </Typography.Text>
         {renderGroupedResults()}
@@ -287,7 +287,7 @@ export default function Screener() {
   };
 
   const filterBody = (
-    <Space direction="vertical" size={isMobile ? 10 : 14} style={{ width: '100%' }}>
+    <Space direction="vertical" size={isMobile ? 8 : 14} style={{ width: '100%' }}>
       <div>
         <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
           周期
@@ -323,21 +323,16 @@ export default function Screener() {
         <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
           最近交易日
         </Typography.Text>
-        <Space size={8} wrap>
-          <Select
-            value={recentDays}
-            onChange={(val) => setRecentDays(val)}
-            style={{ width: 96 }}
-            size={isMobile ? 'small' : 'middle'}
-            options={Array.from({ length: 10 }, (_, i) => ({
-              label: `${i + 1} 天`,
-              value: i + 1,
-            }))}
-          />
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            最近 N 个交易日内触发
-          </Typography.Text>
-        </Space>
+        <Select
+          value={recentDays}
+          onChange={(val) => setRecentDays(val)}
+          style={{ width: 96 }}
+          size={isMobile ? 'small' : 'middle'}
+          options={Array.from({ length: 10 }, (_, i) => ({
+            label: `${i + 1} 天`,
+            value: i + 1,
+          }))}
+        />
       </div>
 
       <Space size={8} style={{ width: '100%' }}>
@@ -365,16 +360,14 @@ export default function Screener() {
 
   return (
     <div>
-      <Space style={{ marginBottom: 12 }} wrap>
-        <Typography.Title level={4} style={{ margin: 0 }}>
-          选股扫描
-        </Typography.Title>
-      </Space>
+      <Typography.Title level={4} style={{ margin: '0 0 12px 0' }}>
+        选股扫描
+      </Typography.Title>
 
       {isMobile ? (
         <Collapse
           size="small"
-          defaultActiveKey={['filters']}
+          defaultActiveKey={[]}
           style={{ marginBottom: 12 }}
           items={[
             {

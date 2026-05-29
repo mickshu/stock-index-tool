@@ -1,7 +1,9 @@
 import { useMemo } from 'react';
-import { Card, Space, Tag, Tooltip, Typography } from 'antd';
+import { Card, Space, Tag, Tooltip, Typography, Grid } from 'antd';
 import { InfoCircleOutlined, ThunderboltFilled } from '@ant-design/icons';
 import type { Signal, SignalLevel } from '../types';
+
+const { useBreakpoint } = Grid;
 
 interface Props {
   signals: Signal[];
@@ -68,6 +70,9 @@ export default function SignalConfluence({
   minCount = 2,
   topN = 6,
 }: Props) {
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
+
   const events = useMemo<ConfluenceEvent[]>(() => {
     const groups = new Map<string, ConfluenceEvent>();
     for (const s of signals) {
@@ -95,9 +100,11 @@ export default function SignalConfluence({
     <Space size={6}>
       <ThunderboltFilled style={{ color: '#fa8c16' }} />
       <Typography.Text strong>信号共振</Typography.Text>
-      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-        同日多个同向信号
-      </Typography.Text>
+      {!isMobile && (
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          同日多个同向信号
+        </Typography.Text>
+      )}
       <Tooltip title="同一交易日出现多个独立指标方向一致的信号，可信度通常更高；但仍需结合趋势位置与量能确认，不构成投资建议。">
         <InfoCircleOutlined style={{ color: '#999' }} />
       </Tooltip>
@@ -106,8 +113,8 @@ export default function SignalConfluence({
   );
 
   return (
-    <Card size="small" title={titleNode} styles={{ body: { padding: 12 } }} style={{ marginBottom: 16 }}>
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+    <Card size="small" title={titleNode} styles={{ body: { padding: isMobile ? 8 : 12 } }} style={{ marginBottom: isMobile ? 8 : 16 }}>
+      <div style={{ display: 'flex', gap: isMobile ? 8 : 12, flexWrap: 'wrap' }}>
         {events.map((e) => {
           const bull = e.level === 'bullish';
           const color = bull ? '#ef5350' : '#26a69a';
@@ -118,10 +125,10 @@ export default function SignalConfluence({
               key={`${e.position}-${e.level}`}
               onClick={() => onSignalClick?.(e.position)}
               style={{
-                flex: '1 1 220px',
-                minWidth: 220,
-                maxWidth: 340,
-                padding: '10px 12px',
+                flex: isMobile ? '1 1 100%' : '1 1 220px',
+                minWidth: isMobile ? undefined : 220,
+                maxWidth: isMobile ? undefined : 340,
+                padding: isMobile ? '8px 10px' : '10px 12px',
                 border: `1px solid ${color}`,
                 borderLeftWidth: 4,
                 borderRadius: 6,
