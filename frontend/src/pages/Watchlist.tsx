@@ -272,8 +272,8 @@ export default function Watchlist() {
 
   const handleAdd = async (stock: StockInfo) => {
     try {
-      await addStock(stock.code, stock.name, stock.market || 'A', addTargetGroup);
-      message.success(`已添加 ${stock.name}`);
+      await addStock(stock.code, stock.name, stock.market || 'A', addTargetGroup, ['watching']);
+      message.success(`已添加 ${stock.name}（已标记为关注）`);
       setModalOpen(false);
       setKeyword('');
       setSearchResults([]);

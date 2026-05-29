@@ -194,6 +194,7 @@ def add_stock(
     name: str = Query(""),
     market: str = Query("A"),
     group_id: int | None = Query(None),
+    tags: str = Query("", description="逗号分隔的系统标签，如 watching 或 holding,watching"),
 ):
     db: Session = next(get_db())
     try:
@@ -206,7 +207,8 @@ def add_stock(
             g = db.get(WatchlistGroup, group_id)
             if not g:
                 raise HTTPException(status_code=400, detail="目标分组不存在")
-        stock = Watchlist(code=code, name=name, market=market, group_id=group_id, tags="")
+        initial_tags = _serialize_tags(_parse_tags(tags))
+        stock = Watchlist(code=code, name=name, market=market, group_id=group_id, tags=initial_tags)
         db.add(stock)
         db.commit()
         db.refresh(stock)
