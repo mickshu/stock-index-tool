@@ -27,6 +27,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
 import type { SorterResult, FilterValue } from 'antd/es/table/interface';
+import type { TabsProps } from 'antd';
 import type { StockInfo, SystemTag, SystemTagInfo, WatchlistGroup } from '../types';
 import { SYSTEM_TAG_META } from '../types';
 
@@ -134,6 +135,18 @@ export default function Watchlist() {
 
   const dragIndexRef = useRef<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const tabDragIndexRef = useRef<number | null>(null);
+
+  const persistGroupOrder = async (next: WatchlistGroup[]) => {
+    setGroups(next);
+    try {
+      await reorderGroups(next.map((g) => g.id));
+      reloadGroups();
+    } catch {
+      message.error('排序保存失败');
+      reloadGroups();
+    }
+  };
 
   const handleGroupDrop = async (targetIndex: number) => {
     const from = dragIndexRef.current;
@@ -143,14 +156,17 @@ export default function Watchlist() {
     const next = [...groups];
     const [moved] = next.splice(from, 1);
     next.splice(targetIndex, 0, moved);
-    setGroups(next);
-    try {
-      await reorderGroups(next.map((g) => g.id));
-      reloadGroups();
-    } catch {
-      message.error('排序保存失败');
-      reloadGroups();
-    }
+    await persistGroupOrder(next);
+  };
+
+  const handleTabDrop = async (targetIndex: number) => {
+    const from = tabDragIndexRef.current;
+    tabDragIndexRef.current = null;
+    if (from == null || from === targetIndex) return;
+    const next = [...groups];
+    const [moved] = next.splice(from, 1);
+    next.splice(targetIndex, 0, moved);
+    await persistGroupOrder(next);
   };
 
   const reloadGroups = async () => {
@@ -385,6 +401,37 @@ export default function Watchlist() {
       label: <Space size={4}>{g.name} <Tag>{g.count ?? 0}</Tag></Space>,
     })),
   ];
+
+  const renderTabBar: TabsProps['renderTabBar'] = (tabBarProps, DefaultTabBar) => (
+    <DefaultTabBar {...tabBarProps}>
+      {(node) => {
+        const key = String(node.key);
+        const idx = groups.findIndex((g) => String(g.id) === key);
+        if (idx < 0) return node;
+        return (
+          <div
+            key={node.key}
+            draggable
+            onDragStart={(e) => {
+              tabDragIndexRef.current = idx;
+              e.dataTransfer.effectAllowed = 'move';
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'move';
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              handleTabDrop(idx);
+            }}
+            style={{ cursor: 'move' }}
+          >
+            {node}
+          </div>
+        );
+      }}
+    </DefaultTabBar>
+  );
 
   const handleTabChange = (key: string) => {
     if (key === ALL_KEY || key === UNGROUPED_KEY) {
@@ -694,6 +741,7 @@ export default function Watchlist() {
           activeKey={String(filter)}
           onChange={handleTabChange}
           items={tabItems}
+          renderTabBar={renderTabBar}
           style={{ flex: 1, marginBottom: -1 }}
           size="small"
         />
@@ -837,6 +885,7 @@ export default function Watchlist() {
         {groups.length === 0 ? (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无分组" />
         ) : (
+          <div style={{ maxHeight: 360, overflowY: 'auto' }}>
           <List
             size="small"
             bordered
@@ -906,6 +955,7 @@ export default function Watchlist() {
               </List.Item>
             )}
           />
+          </div>
         )}
       </Modal>
     </div>
