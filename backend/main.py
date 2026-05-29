@@ -1,4 +1,5 @@
 from pathlib import Path
+import subprocess
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -72,6 +73,38 @@ def on_startup():
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+@app.post("/api/updatereload")
+async def update_and_reload():
+    """Webhook: git pull + 前端构建。后端因 uvicorn --reload 会自动重启。"""
+    results = {}
+    try:
+        r = subprocess.run(
+            ["git", "pull"],
+            cwd=str(_PROJECT_ROOT),
+            capture_output=True, text=True, timeout=120,
+        )
+        results["git_pull"] = {"exit_code": r.returncode, "stdout": r.stdout.strip(), "stderr": r.stderr.strip()}
+        if r.returncode != 0:
+            return {"status": "git_pull_failed", "details": results}
+    except Exception as e:
+        return {"status": "git_pull_error", "error": str(e)}
+
+    try:
+        r = subprocess.run(
+            ["npm", "run", "build"],
+            cwd=str(_PROJECT_ROOT / "frontend"),
+            capture_output=True, text=True, timeout=300,
+        )
+        results["frontend_build"] = {"exit_code": r.returncode, "stdout": r.stdout.strip()[-500:], "stderr": r.stderr.strip()[-500:]}
+    except Exception as e:
+        results["frontend_build"] = {"error": str(e)}
+
+    return {"status": "done", "details": results}
 
 
 # AI 分析报告静态目录：<repo>/data/reports/，浏览器可直接访问 /reports/xxx.md。

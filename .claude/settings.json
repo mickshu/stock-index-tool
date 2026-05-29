@@ -1,0 +1,18 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.command // empty' | grep -qE '^git\\s+(commit|push)' && git -C /home/admin/stocktool rev-parse --abbrev-ref HEAD 2>/dev/null | grep -qx main && curl -s -X POST http://localhost:8000/api/updatereload > /dev/null 2>&1 || true",
+            "timeout": 30,
+            "statusMessage": "Auto-deploy: checking main branch...",
+            "if": "Bash(git *)"
+          }
+        ]
+      }
+    ]
+  }
+}
