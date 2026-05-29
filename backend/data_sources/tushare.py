@@ -1,6 +1,8 @@
 import logging
+import time
 import pandas as pd
 from backend.data_sources.base import BaseDataSource, PERIOD_MAP
+from backend.data_sources.pinyin_search import rank_stock_matches
 from backend.config import settings
 
 logger = logging.getLogger(__name__)
@@ -8,6 +10,9 @@ logger = logging.getLogger(__name__)
 
 class TushareDataSource(BaseDataSource):
     name = "tushare"
+
+    _STOCK_INDEX_CACHE: dict = {"ts": 0.0, "rows": []}
+    _STOCK_INDEX_TTL = 24 * 3600.0
 
     def __init__(self):
         self._pro = None
@@ -20,28 +25,42 @@ class TushareDataSource(BaseDataSource):
             self._pro = ts.pro_api()
         return self._pro
 
+    def _stock_name_index(self) -> list[tuple[str, str]]:
+        now = time.monotonic()
+        cache = self._STOCK_INDEX_CACHE
+        if cache["rows"] and now - cache["ts"] < self._STOCK_INDEX_TTL:
+            return cache["rows"]
+        try:
+            df = self.pro.stock_basic(
+                exchange="", list_status="L", fields="ts_code,symbol,name"
+            )
+        except Exception:
+            logger.exception("tushare stock_basic failed")
+            return cache["rows"]
+        if df is None or df.empty:
+            return cache["rows"]
+        rows: list[tuple[str, str]] = []
+        for _, row in df.iterrows():
+            symbol = row.get("symbol") if "symbol" in df.columns else None
+            ts_code = row.get("ts_code") if "ts_code" in df.columns else None
+            code = str(symbol if symbol else str(ts_code or "").split(".")[0]).zfill(6)
+            name = str(row.get("name") or "")
+            if code:
+                rows.append((code, name))
+        cache["ts"] = now
+        cache["rows"] = rows
+        return rows
+
     def search_stocks(self, keyword: str) -> list[dict]:
         kw = (keyword or "").strip()
         if not kw:
             return []
         try:
-            df = self.pro.stock_basic(
-                exchange="", list_status="L", fields="ts_code,symbol,name"
-            )
-            name_series = df["name"].astype(str)
-            symbol_series = (
-                df["symbol"].astype(str) if "symbol" in df.columns
-                else df["ts_code"].astype(str)
-            )
-            mask = (
-                name_series.str.contains(kw, na=False, regex=False)
-                | symbol_series.str.contains(kw, na=False, regex=False)
-            )
-            results = df[mask].head(20)
-            return [
-                {"code": row["ts_code"].split(".")[0], "name": row["name"], "market": "A"}
-                for _, row in results.iterrows()
-            ]
+            rows = self._stock_name_index()
+            if not rows:
+                return []
+            matched = rank_stock_matches(rows, kw, limit=20)
+            return [{"code": code, "name": name, "market": "A"} for code, name in matched]
         except Exception:
             logger.exception("tushare search_stocks failed for keyword=%r", kw)
             return []

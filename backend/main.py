@@ -36,6 +36,7 @@ app.include_router(screener_router)
 app.include_router(settings_router)
 app.include_router(summary_router)
 app.include_router(ai_agent_router)
+app.include_router(ai_analysis_router)
 
 
 _scheduler_logger = logging.getLogger("backend.scheduler")

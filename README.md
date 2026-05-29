@@ -70,9 +70,9 @@ python -m pytest backend/test_services.py -v
 | GET | `/api/v1/analysis/indicators?code=&period=&indicators=MACD,MA,KDJ,RSI` | K 线 + 指标 + 信号 |
 | GET | `/api/v1/analysis/signals?code=&period=` | 仅返回检测到的信号 |
 | GET | `/api/v1/analysis/available-indicators` | 已注册的指标名称 |
-| GET / POST | `/api/v1/stocks` | 自选股列表 / 添加 |
+| GET / POST | `/api/v1/stocks` | 自选股列表 / 添加（POST 可选 `tags=watching` 等逗号分隔系统标签） |
 | DELETE | `/api/v1/stocks/{id}` | 从自选股移除 |
-| GET | `/api/v1/stocks/search?q=` | 关键字搜索 |
+| GET | `/api/v1/stocks/search?q=` | 关键字搜索，支持代码 / 汉字 / 拼音 / 首字母（如 `pa`、`zgpa`、`gzmt`） |
 | GET | `/api/v1/data-sources` | 当前激活及可用数据源 |
 | POST | `/api/v1/data-sources/switch?source=` | 切换激活数据源 |
 
@@ -125,6 +125,10 @@ akshare/tushare  →  data_sources.*  →  kline_cache (SQLite)
   但若用于多租户或大规模股票池场景，需要迁移到列式存储。
 - 选用 SQLite 是为了零配置的本地持久化。如需更换，请修改 `.env`
   或 `backend/config.py` 中的 `DATABASE_URL`。
+- **拼音搜索依赖** — 股票搜索的拼音 / 首字母联想需要 `pypinyin`。
+  升级到含该功能的版本后，先在后端虚拟环境内执行
+  `pip install -r backend/requirements.txt` 再重启 `uvicorn`。
+  未安装时搜索会自动退化为只走代码 / 汉字子串匹配，不会报错。
 
 ## 许可证
 

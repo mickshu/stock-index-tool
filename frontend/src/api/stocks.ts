@@ -25,9 +25,11 @@ export async function addStock(
   name = '',
   market = 'A',
   groupId?: number | null,
+  tags?: SystemTag[],
 ): Promise<StockInfo> {
   const params: Record<string, string | number | undefined> = { code, name, market };
   if (groupId != null) params.group_id = groupId;
+  if (tags && tags.length > 0) params.tags = tags.join(',');
   const { data } = await api.post<StockInfo>('/stocks', null, { params });
   return data;
 }

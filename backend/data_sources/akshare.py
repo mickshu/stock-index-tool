@@ -5,6 +5,7 @@ import requests
 import pandas as pd
 import akshare as ak
 from backend.data_sources.base import BaseDataSource, PERIOD_MAP
+from backend.data_sources.pinyin_search import rank_stock_matches
 
 logger = logging.getLogger(__name__)
 
@@ -26,31 +27,44 @@ def _to_float(v) -> float | None:
 class AkshareDataSource(BaseDataSource):
     name = "akshare"
 
+    # 全 A 股 (code, name) 列表缓存，避免每次搜索都打 akshare；24h TTL 足够。
+    _STOCK_INDEX_CACHE: dict = {"ts": 0.0, "rows": []}
+    _STOCK_INDEX_TTL = 24 * 3600.0
+
+    def _stock_name_index(self) -> list[tuple[str, str]]:
+        now = time.monotonic()
+        cache = self._STOCK_INDEX_CACHE
+        if cache["rows"] and now - cache["ts"] < self._STOCK_INDEX_TTL:
+            return cache["rows"]
+        try:
+            df = ak.stock_info_a_code_name()
+        except Exception:
+            logger.exception("akshare stock_info_a_code_name failed")
+            return cache["rows"]
+        if df is None or df.empty:
+            return cache["rows"]
+        if "名称" in df.columns:
+            code_col, name_col = "代码", "名称"
+        else:
+            code_col, name_col = "code", "name"
+        rows: list[tuple[str, str]] = [
+            (str(row[code_col]).zfill(6), str(row[name_col]))
+            for _, row in df.iterrows()
+        ]
+        cache["ts"] = now
+        cache["rows"] = rows
+        return rows
+
     def search_stocks(self, keyword: str) -> list[dict]:
         kw = (keyword or "").strip()
         if not kw:
             return []
         try:
-            df = ak.stock_info_a_code_name()
-            if "名称" in df.columns:
-                code_col, name_col = "代码", "名称"
-            else:
-                code_col, name_col = "code", "name"
-            code_series = df[code_col].astype(str)
-            name_series = df[name_col].astype(str)
-            mask = (
-                name_series.str.contains(kw, na=False, regex=False)
-                | code_series.str.contains(kw, na=False, regex=False)
-            )
-            results = df[mask].head(20)
-            return [
-                {
-                    "code": str(row[code_col]).zfill(6),
-                    "name": str(row[name_col]),
-                    "market": "A",
-                }
-                for _, row in results.iterrows()
-            ]
+            rows = self._stock_name_index()
+            if not rows:
+                return []
+            matched = rank_stock_matches(rows, kw, limit=20)
+            return [{"code": code, "name": name, "market": "A"} for code, name in matched]
         except Exception:
             logger.exception("akshare search_stocks failed for keyword=%r", kw)
             return []
