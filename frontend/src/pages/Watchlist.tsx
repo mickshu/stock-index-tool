@@ -612,10 +612,13 @@ export default function Watchlist() {
           <Select
             size="small"
             style={{ width: 160 }}
-            value={record.group_id ?? null}
-            onChange={(val) => record.id != null && handleMoveStock(record.id, val)}
+            value={record.group_id ?? UNGROUPED_KEY}
+            onChange={(val) =>
+              record.id != null &&
+              handleMoveStock(record.id, val === UNGROUPED_KEY ? null : (val as number))
+            }
             options={[
-              { value: null as number | null, label: '未分组' },
+              { value: UNGROUPED_KEY, label: '未分组' },
               ...groups.map((g) => ({ value: g.id, label: g.name })),
             ]}
           />
