@@ -12,8 +12,10 @@ import {
   Checkbox,
   Card,
   Grid,
+  Tabs,
+  Empty,
 } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import { ReloadOutlined, ThunderboltOutlined, ExperimentOutlined } from '@ant-design/icons';
 import KlineChart from '../components/KlineChart';
 import SignalPanel from '../components/SignalPanel';
 import SignalConfluence from '../components/SignalConfluence';
@@ -31,11 +33,14 @@ const periodOptions: { label: string; value: Period }[] = [
   { label: '月线', value: 'monthly' },
 ];
 
+type AnalysisTabKey = 'signal' | 'ai';
+
 export default function StockDetail() {
   const { code } = useParams<{ code: string }>();
   const screens = useBreakpoint();
   const isMobile = !screens.md;
   const [stockName, setStockName] = useState('');
+  const [activeTab, setActiveTab] = useState<AnalysisTabKey>('signal');
   const {
     klineData,
     signals,
@@ -102,16 +107,54 @@ export default function StockDetail() {
 
       <FundamentalsCard code={code} />
 
-      <AIAgentCard code={code} stockName={stockName} />
-
-      <SignalConfluence
-        signals={signals}
-        showMA={showMA}
-        showMACD={showMACD}
-        showKDJ={showKDJ}
-        showRSI={showRSI}
-        onSignalClick={(pos) => setHighlightPosition(pos)}
-      />
+      <Card
+        size="small"
+        style={{ marginTop: 16, marginBottom: 16 }}
+        styles={{ body: { padding: isMobile ? 8 : 12 } }}
+      >
+        <Tabs
+          activeKey={activeTab}
+          onChange={(key) => setActiveTab(key as AnalysisTabKey)}
+          size={isMobile ? 'small' : 'middle'}
+          items={[
+            {
+              key: 'signal',
+              label: (
+                <Space size={6}>
+                  <ThunderboltOutlined />
+                  <span>信号分析</span>
+                </Space>
+              ),
+              children: signals.length > 0 ? (
+                <SignalConfluence
+                  signals={signals}
+                  showMA={showMA}
+                  showMACD={showMACD}
+                  showKDJ={showKDJ}
+                  showRSI={showRSI}
+                  onSignalClick={(pos) => setHighlightPosition(pos)}
+                />
+              ) : (
+                <Empty
+                  description="暂无信号数据"
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  style={{ padding: '12px 0' }}
+                />
+              ),
+            },
+            {
+              key: 'ai',
+              label: (
+                <Space size={6}>
+                  <ExperimentOutlined />
+                  <span>AI 分析</span>
+                </Space>
+              ),
+              children: <AIAgentCard code={code} stockName={stockName} />,
+            },
+          ]}
+        />
+      </Card>
 
       <Row gutter={isMobile ? 8 : 16}>
         <Col xs={24} lg={18}>
