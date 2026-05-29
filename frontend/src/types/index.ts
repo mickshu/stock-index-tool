@@ -59,6 +59,7 @@ export interface StockInfo {
   name: string;
   market: string;
   group_id?: number | null;
+  tags?: string[];
 }
 
 export interface WatchlistGroup {
@@ -67,6 +68,19 @@ export interface WatchlistGroup {
   sort_order: number;
   count?: number | null;
 }
+
+export type SystemTag = 'holding' | 'watching';
+
+export interface SystemTagInfo {
+  key: SystemTag;
+  name: string;
+  count: number;
+}
+
+export const SYSTEM_TAG_META: { key: SystemTag; label: string; color: string }[] = [
+  { key: 'holding', label: '持仓', color: 'gold' },
+  { key: 'watching', label: '关注', color: 'blue' },
+];
 
 export interface IndexData {
   name: string;

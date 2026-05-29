@@ -24,6 +24,8 @@ def _migrate_sqlite():
         col_names = {row[1] for row in cols}
         if cols and "group_id" not in col_names:
             conn.execute(text("ALTER TABLE watchlist ADD COLUMN group_id INTEGER"))
+        if cols and "tags" not in col_names:
+            conn.execute(text("ALTER TABLE watchlist ADD COLUMN tags VARCHAR(120) DEFAULT ''"))
 
 
 def init_db():

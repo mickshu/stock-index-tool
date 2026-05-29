@@ -1,5 +1,5 @@
 import api from './client';
-import type { Signal } from '../types';
+import type { Signal, SystemTag } from '../types';
 
 export interface ScreenerStockResult {
   code: string;
@@ -25,6 +25,9 @@ export interface ScreenerParams {
   days?: number;
   recent_days?: number;
   codes?: string;
+  group_id?: number;
+  ungrouped?: boolean;
+  tag?: SystemTag;
 }
 
 export async function runScreener(params: ScreenerParams): Promise<ScreenerResponse> {

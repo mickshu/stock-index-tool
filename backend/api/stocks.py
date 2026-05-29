@@ -8,6 +8,23 @@ from backend.data_sources.factory import get_data_source
 
 router = APIRouter(prefix="/api/v1/stocks", tags=["stocks"])
 
+SYSTEM_TAGS: tuple[str, ...] = ("holding", "watching")
+SYSTEM_TAG_LABELS: dict[str, str] = {"holding": "持仓", "watching": "关注"}
+
+
+def _parse_tags(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    return [t for t in (x.strip() for x in raw.split(",")) if t]
+
+
+def _serialize_tags(tags: list[str]) -> str:
+    seen: list[str] = []
+    for t in tags:
+        if t in SYSTEM_TAGS and t not in seen:
+            seen.append(t)
+    return ",".join(seen)
+
 
 def _stock_dict(r: Watchlist) -> dict:
     return {
@@ -16,6 +33,7 @@ def _stock_dict(r: Watchlist) -> dict:
         "name": r.name,
         "market": r.market,
         "group_id": r.group_id,
+        "tags": _parse_tags(r.tags),
     }
 
 
@@ -36,11 +54,19 @@ def list_groups():
             select(WatchlistGroup).order_by(WatchlistGroup.sort_order.asc(), WatchlistGroup.id.asc())
         ).scalars().all()
         counts: dict[int | None, int] = {}
+        tag_counts: dict[str, int] = {t: 0 for t in SYSTEM_TAGS}
         for w in db.execute(select(Watchlist)).scalars().all():
             counts[w.group_id] = counts.get(w.group_id, 0) + 1
+            for t in _parse_tags(w.tags):
+                if t in tag_counts:
+                    tag_counts[t] += 1
         return {
             "groups": [_group_dict(g, counts.get(g.id, 0)) for g in groups],
             "ungrouped_count": counts.get(None, 0),
+            "system_tags": [
+                {"key": t, "name": SYSTEM_TAG_LABELS[t], "count": tag_counts[t]}
+                for t in SYSTEM_TAGS
+            ],
         }
     finally:
         db.close()
@@ -142,6 +168,7 @@ def delete_group(group_id: int):
 def list_watchlist(
     group_id: int | None = Query(None, description="按分组筛选；不传则返回全部"),
     ungrouped: bool = Query(False, description="只看未分组"),
+    tag: str | None = Query(None, description="按系统标签过滤，如 holding / watching"),
 ):
     db: Session = next(get_db())
     try:
@@ -151,6 +178,11 @@ def list_watchlist(
         elif group_id is not None:
             stmt = stmt.where(Watchlist.group_id == group_id)
         rows = db.execute(stmt).scalars().all()
+        if tag:
+            tag = tag.strip()
+            if tag not in SYSTEM_TAGS:
+                return []
+            rows = [r for r in rows if tag in _parse_tags(r.tags)]
         return [_stock_dict(r) for r in rows]
     finally:
         db.close()
@@ -174,7 +206,7 @@ def add_stock(
             g = db.get(WatchlistGroup, group_id)
             if not g:
                 raise HTTPException(status_code=400, detail="目标分组不存在")
-        stock = Watchlist(code=code, name=name, market=market, group_id=group_id)
+        stock = Watchlist(code=code, name=name, market=market, group_id=group_id, tags="")
         db.add(stock)
         db.commit()
         db.refresh(stock)
@@ -203,6 +235,11 @@ def update_stock(stock_id: int, payload: dict = Body(...)):
                 if not g:
                     raise HTTPException(status_code=400, detail="目标分组不存在")
                 stock.group_id = gid_int
+        if "tags" in payload:
+            tags = payload["tags"] or []
+            if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
+                raise HTTPException(status_code=400, detail="tags 必须为字符串数组")
+            stock.tags = _serialize_tags(tags)
         db.commit()
         db.refresh(stock)
         return _stock_dict(stock)

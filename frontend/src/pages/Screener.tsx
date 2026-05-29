@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Button,
   Card,
@@ -16,7 +16,11 @@ import {
 import { SearchOutlined, FilterOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { runScreener, type ScreenerStockResult } from '../api/screener';
-import type { Signal } from '../types';
+import { fetchGroups } from '../api/stocks';
+import type { Signal, SystemTag, SystemTagInfo, WatchlistGroup } from '../types';
+import { SYSTEM_TAG_META } from '../types';
+
+type GroupFilterValue = 'all' | 'ungrouped' | `tag:${SystemTag}` | number;
 
 const { useBreakpoint } = Grid;
 const { CheckableTag } = Tag;
@@ -141,6 +145,10 @@ export default function Screener() {
   const [categories, setCategories] = useState<string[]>([]);
   const [levels, setLevels] = useState<string[]>([]);
   const [recentDays, setRecentDays] = useState<number>(3);
+  const [groupFilter, setGroupFilter] = useState<GroupFilterValue>('all');
+  const [groups, setGroups] = useState<WatchlistGroup[]>([]);
+  const [ungroupedCount, setUngroupedCount] = useState<number>(0);
+  const [systemTags, setSystemTags] = useState<SystemTagInfo[]>([]);
   const [results, setResults] = useState<ScreenerStockResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasScanned, setHasScanned] = useState(false);
@@ -149,19 +157,57 @@ export default function Screener() {
     total_matches: 0,
   });
 
+  useEffect(() => {
+    fetchGroups()
+      .then((resp) => {
+        setGroups(resp.groups);
+        setUngroupedCount(resp.ungrouped_count);
+        setSystemTags(resp.system_tags ?? []);
+      })
+      .catch(() => {
+        /* 加载分组失败时静默降级，仅影响筛选下拉项 */
+      });
+  }, []);
+
+  const groupOptions = useMemo(() => {
+    const options: { label: string; value: GroupFilterValue }[] = [
+      { label: '全部分组', value: 'all' },
+      { label: `未分组（${ungroupedCount}）`, value: 'ungrouped' },
+    ];
+    for (const meta of SYSTEM_TAG_META) {
+      const info = systemTags.find((t) => t.key === meta.key);
+      const count = info?.count ?? 0;
+      options.push({ label: `${meta.label}（${count}）`, value: `tag:${meta.key}` });
+    }
+    for (const g of groups) {
+      const count = g.count ?? 0;
+      options.push({ label: `${g.name}（${count}）`, value: g.id });
+    }
+    return options;
+  }, [groups, ungroupedCount, systemTags]);
+
   const activeFilterCount = useMemo(
-    () => categories.length + levels.length,
-    [categories, levels],
+    () => categories.length + levels.length + (groupFilter !== 'all' ? 1 : 0),
+    [categories, levels, groupFilter],
   );
 
   const handleScan = async () => {
     setLoading(true);
     try {
+      let scopeParams: { ungrouped?: boolean; group_id?: number; tag?: SystemTag } = {};
+      if (groupFilter === 'ungrouped') {
+        scopeParams = { ungrouped: true };
+      } else if (typeof groupFilter === 'string' && groupFilter.startsWith('tag:')) {
+        scopeParams = { tag: groupFilter.slice(4) as SystemTag };
+      } else if (typeof groupFilter === 'number') {
+        scopeParams = { group_id: groupFilter };
+      }
       const resp = await runScreener({
         period,
         signal_categories: categories.join(','),
         signal_levels: levels.join(','),
         recent_days: recentDays,
+        ...scopeParams,
       });
       setResults(resp.results);
       setSummary({
@@ -182,6 +228,7 @@ export default function Screener() {
     setLevels([]);
     setRecentDays(3);
     setPeriod('daily');
+    setGroupFilter('all');
   };
 
   const dateGroups = useMemo(() => groupResultsByDate(results), [results]);
@@ -298,6 +345,19 @@ export default function Screener() {
           size={isMobile ? 'small' : 'middle'}
           options={PERIOD_OPTIONS}
           block={isMobile}
+        />
+      </div>
+
+      <div>
+        <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
+          股票分组
+        </Typography.Text>
+        <Select<GroupFilterValue>
+          value={groupFilter}
+          onChange={(val) => setGroupFilter(val)}
+          style={{ width: isMobile ? '100%' : 200 }}
+          size={isMobile ? 'small' : 'middle'}
+          options={groupOptions}
         />
       </div>
 

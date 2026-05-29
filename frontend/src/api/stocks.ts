@@ -1,14 +1,17 @@
 import api from './client';
-import type { StockInfo, WatchlistGroup } from '../types';
+import type { StockInfo, WatchlistGroup, SystemTag, SystemTagInfo } from '../types';
 
 export interface ListWatchlistOptions {
   groupId?: number | null;
   ungrouped?: boolean;
+  tag?: SystemTag;
 }
 
 export async function fetchWatchlist(options: ListWatchlistOptions = {}): Promise<StockInfo[]> {
   const params: Record<string, string | number | boolean | undefined> = {};
-  if (options.ungrouped) {
+  if (options.tag) {
+    params.tag = options.tag;
+  } else if (options.ungrouped) {
     params.ungrouped = true;
   } else if (options.groupId != null) {
     params.group_id = options.groupId;
@@ -43,6 +46,7 @@ export async function searchStocks(q: string): Promise<{ query: string; results:
 export interface GroupsResponse {
   groups: WatchlistGroup[];
   ungrouped_count: number;
+  system_tags: SystemTagInfo[];
 }
 
 export async function fetchGroups(): Promise<GroupsResponse> {
@@ -70,6 +74,11 @@ export async function reorderGroups(ids: number[]): Promise<void> {
 
 export async function setStockGroup(stockId: number, groupId: number | null): Promise<StockInfo> {
   const { data } = await api.patch<StockInfo>(`/stocks/${stockId}`, { group_id: groupId });
+  return data;
+}
+
+export async function setStockTags(stockId: number, tags: SystemTag[]): Promise<StockInfo> {
+  const { data } = await api.patch<StockInfo>(`/stocks/${stockId}`, { tags });
   return data;
 }
 

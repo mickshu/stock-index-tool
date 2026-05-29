@@ -37,6 +37,7 @@ class Watchlist(Base):
     name = Column(String(50))
     market = Column(String(10), default="A")
     group_id = Column(Integer, nullable=True)
+    tags = Column(String(120), default="")
     added_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (UniqueConstraint("code", "market", name="uq_watchlist_code_market"),)

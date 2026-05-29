@@ -27,7 +27,8 @@ import {
 import { useNavigate } from 'react-router-dom';
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
 import type { SorterResult, FilterValue } from 'antd/es/table/interface';
-import type { StockInfo, WatchlistGroup } from '../types';
+import type { StockInfo, SystemTag, SystemTagInfo, WatchlistGroup } from '../types';
+import { SYSTEM_TAG_META } from '../types';
 
 const { useBreakpoint } = Grid;
 import {
@@ -41,13 +42,53 @@ import {
   deleteGroup,
   reorderGroups,
   setStockGroup,
+  setStockTags,
 } from '../api/stocks';
 import { fetchQuotes, type QuoteData } from '../api/market';
 
 const ALL_KEY = '__all__';
 const UNGROUPED_KEY = '__ungrouped__';
+const TAG_PREFIX = '__tag_';
 
-type GroupFilter = typeof ALL_KEY | typeof UNGROUPED_KEY | number;
+type GroupFilter =
+  | typeof ALL_KEY
+  | typeof UNGROUPED_KEY
+  | `${typeof TAG_PREFIX}${SystemTag}__`
+  | number;
+
+function tagFilterKey(tag: SystemTag): `${typeof TAG_PREFIX}${SystemTag}__` {
+  return `${TAG_PREFIX}${tag}__` as `${typeof TAG_PREFIX}${SystemTag}__`;
+}
+
+function parseTagFilter(key: string): SystemTag | null {
+  if (!key.startsWith(TAG_PREFIX) || !key.endsWith('__')) return null;
+  const t = key.slice(TAG_PREFIX.length, -2);
+  if (t === 'holding' || t === 'watching') return t;
+  return null;
+}
+
+function StockTagBadges({ tags, size = 'small' }: { tags: string[] | undefined; size?: 'small' | 'mini' }) {
+  if (!tags || tags.length === 0) return null;
+  return (
+    <Space size={2} wrap>
+      {SYSTEM_TAG_META.filter((m) => tags.includes(m.key)).map((m) => (
+        <Tag
+          key={m.key}
+          color={m.color}
+          style={{
+            marginInlineEnd: 0,
+            padding: size === 'mini' ? '0 4px' : '0 6px',
+            fontSize: size === 'mini' ? 10 : 11,
+            lineHeight: size === 'mini' ? '16px' : '18px',
+            borderRadius: 8,
+          }}
+        >
+          {m.label}
+        </Tag>
+      ))}
+    </Space>
+  );
+}
 
 function formatVolume(v: number | null | undefined): string {
   if (v == null) return '—';
@@ -72,6 +113,7 @@ export default function Watchlist() {
   const [quotes, setQuotes] = useState<Record<string, QuoteData>>({});
   const [groups, setGroups] = useState<WatchlistGroup[]>([]);
   const [ungroupedCount, setUngroupedCount] = useState(0);
+  const [systemTagInfos, setSystemTagInfos] = useState<SystemTagInfo[]>([]);
   const [filter, setFilter] = useState<GroupFilter>(ALL_KEY);
   const [loading, setLoading] = useState(false);
 
@@ -113,9 +155,10 @@ export default function Watchlist() {
 
   const reloadGroups = async () => {
     try {
-      const { groups: gs, ungrouped_count } = await fetchGroups();
+      const { groups: gs, ungrouped_count, system_tags } = await fetchGroups();
       setGroups(gs);
       setUngroupedCount(ungrouped_count);
+      setSystemTagInfos(system_tags ?? []);
     } catch {
       message.error('加载分组失败');
     }
@@ -126,12 +169,17 @@ export default function Watchlist() {
   const reloadStocks = async (current: GroupFilter = filter) => {
     setLoading(true);
     try {
-      const opts =
-        current === ALL_KEY
-          ? {}
-          : current === UNGROUPED_KEY
-          ? { ungrouped: true }
-          : { groupId: current as number };
+      let opts: Parameters<typeof fetchWatchlist>[0] = {};
+      if (current === ALL_KEY) {
+        opts = {};
+      } else if (current === UNGROUPED_KEY) {
+        opts = { ungrouped: true };
+      } else if (typeof current === 'string') {
+        const tag = parseTagFilter(current);
+        if (tag) opts = { tag };
+      } else {
+        opts = { groupId: current as number };
+      }
       const rows = await fetchWatchlist(opts);
       setData(rows);
       const seq = ++quoteSeqRef.current;
@@ -289,11 +337,49 @@ export default function Watchlist() {
     }
   };
 
+  const handleToggleTag = async (stock: StockInfo, tag: SystemTag) => {
+    if (stock.id == null) return;
+    const current = stock.tags ?? [];
+    const next = current.includes(tag)
+      ? current.filter((t) => t !== tag)
+      : [...current, tag];
+    setData((prev) =>
+      prev.map((s) => (s.id === stock.id ? { ...s, tags: next } : s)),
+    );
+    setSystemTagInfos((prev) =>
+      prev.map((info) => {
+        if (info.key !== tag) return info;
+        const delta = next.includes(tag) ? 1 : -1;
+        return { ...info, count: Math.max(0, info.count + delta) };
+      }),
+    );
+    try {
+      await setStockTags(stock.id, next as SystemTag[]);
+    } catch (e) {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      message.error(detail || '打标失败');
+      reloadGroups();
+      reloadStocks();
+    }
+  };
+
   const totalCount = ungroupedCount + groups.reduce((sum, g) => sum + (g.count ?? 0), 0);
+
+  const systemTagCount = (key: SystemTag) =>
+    systemTagInfos.find((t) => t.key === key)?.count ?? 0;
 
   const tabItems = [
     { key: ALL_KEY, label: <Space size={4}>全部 <Tag>{totalCount}</Tag></Space> },
     { key: UNGROUPED_KEY, label: <Space size={4}>未分组 <Tag>{ungroupedCount}</Tag></Space> },
+    ...SYSTEM_TAG_META.map((meta) => ({
+      key: tagFilterKey(meta.key),
+      label: (
+        <Space size={4}>
+          <Tag color={meta.color} style={{ marginInlineEnd: 0 }}>{meta.label}</Tag>
+          <Tag>{systemTagCount(meta.key)}</Tag>
+        </Space>
+      ),
+    })),
     ...groups.map((g) => ({
       key: String(g.id),
       label: <Space size={4}>{g.name} <Tag>{g.count ?? 0}</Tag></Space>,
@@ -301,8 +387,16 @@ export default function Watchlist() {
   ];
 
   const handleTabChange = (key: string) => {
-    if (key === ALL_KEY || key === UNGROUPED_KEY) setFilter(key as GroupFilter);
-    else setFilter(Number(key));
+    if (key === ALL_KEY || key === UNGROUPED_KEY) {
+      setFilter(key as GroupFilter);
+      return;
+    }
+    const tag = parseTagFilter(key);
+    if (tag) {
+      setFilter(tagFilterKey(tag));
+      return;
+    }
+    setFilter(Number(key));
   };
 
   const sortedData = useMemo(() => {
@@ -323,12 +417,39 @@ export default function Watchlist() {
     return [...data].sort((a, b) => (getVal(a) - getVal(b)) * dir);
   }, [data, quotes, sortField, sortOrder]);
 
-  const filterLabel =
-    filter === ALL_KEY
-      ? '全部'
-      : filter === UNGROUPED_KEY
-      ? '未分组'
-      : groups.find((g) => g.id === filter)?.name || '分组';
+  const filterLabel = (() => {
+    if (filter === ALL_KEY) return '全部';
+    if (filter === UNGROUPED_KEY) return '未分组';
+    if (typeof filter === 'string') {
+      const tag = parseTagFilter(filter);
+      if (tag) return SYSTEM_TAG_META.find((m) => m.key === tag)?.label || tag;
+    }
+    return groups.find((g) => g.id === filter)?.name || '分组';
+  })();
+
+  const renderTagToggleRow = (record: StockInfo) => (
+    <Space size={4} wrap>
+      {SYSTEM_TAG_META.map((meta) => {
+        const active = record.tags?.includes(meta.key) ?? false;
+        return (
+          <Tag.CheckableTag
+            key={meta.key}
+            checked={active}
+            onChange={() => handleToggleTag(record, meta.key)}
+            style={{
+              padding: '0 6px',
+              fontSize: 11,
+              lineHeight: '18px',
+              borderRadius: 8,
+              border: active ? undefined : '1px dashed #d9d9d9',
+            }}
+          >
+            {meta.label}
+          </Tag.CheckableTag>
+        );
+      })}
+    </Space>
+  );
 
   const renderMobileList = () => {
     if (sortedData.length === 0 && !loading) {
@@ -355,9 +476,10 @@ export default function Watchlist() {
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                   <Typography.Text strong style={{ fontSize: 15 }}>{record.name}</Typography.Text>
-                  <Typography.Text type="secondary" style={{ fontSize: 12, marginLeft: 6 }}>{record.code}</Typography.Text>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>{record.code}</Typography.Text>
+                  <StockTagBadges tags={record.tags} size="mini" />
                 </div>
                 <Space size={4}>
                   <Button type="link" size="small" onClick={() => navigate(`/stock/${record.code}`)}>
@@ -387,6 +509,7 @@ export default function Watchlist() {
                   主力 {mainNet != null ? `${mainNet > 0 ? '+' : ''}${formatMoney(mainNet)}` : '—'}
                 </Typography.Text>
               </div>
+              <div style={{ marginTop: 6 }}>{renderTagToggleRow(record)}</div>
             </div>
           );
         }}
@@ -396,7 +519,17 @@ export default function Watchlist() {
 
   const desktopColumns: ColumnsType<StockInfo> = [
     { title: '代码', dataIndex: 'code', key: 'code', width: 90 },
-    { title: '名称', dataIndex: 'name', key: 'name', width: 110 },
+    {
+      title: '名称',
+      key: 'name',
+      width: 160,
+      render: (_, record) => (
+        <Space size={4}>
+          <span>{record.name}</span>
+          <StockTagBadges tags={record.tags} size="mini" />
+        </Space>
+      ),
+    },
     {
       title: '最新价',
       key: 'price',
@@ -467,20 +600,23 @@ export default function Watchlist() {
       },
     },
     {
-      title: '分组',
+      title: '分组 / 标签',
       key: 'group',
-      width: 140,
+      width: 200,
       render: (_, record) => (
-        <Select
-          size="small"
-          style={{ width: 130 }}
-          value={record.group_id ?? null}
-          onChange={(val) => record.id != null && handleMoveStock(record.id, val)}
-          options={[
-            { value: null as number | null, label: '未分组' },
-            ...groups.map((g) => ({ value: g.id, label: g.name })),
-          ]}
-        />
+        <Space direction="vertical" size={2} style={{ width: '100%' }}>
+          <Select
+            size="small"
+            style={{ width: 160 }}
+            value={record.group_id ?? null}
+            onChange={(val) => record.id != null && handleMoveStock(record.id, val)}
+            options={[
+              { value: null as number | null, label: '未分组' },
+              ...groups.map((g) => ({ value: g.id, label: g.name })),
+            ]}
+          />
+          {renderTagToggleRow(record)}
+        </Space>
       ),
     },
     {
@@ -585,7 +721,7 @@ export default function Watchlist() {
             loading={loading}
             size="middle"
             pagination={{ pageSize: 20 }}
-            scroll={{ x: 960 }}
+            scroll={{ x: 1040 }}
             onChange={handleTableChange}
           />
         )
