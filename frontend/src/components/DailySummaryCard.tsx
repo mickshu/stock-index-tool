@@ -1,11 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Button, Card, Empty, Space, Spin, Tag, Typography, message, Grid } from 'antd';
-import { ReloadOutlined, OpenAIOutlined } from '@ant-design/icons';
+import { Button, Card, Empty, Input, Modal, Space, Spin, Tag, Tooltip, Typography, message, Grid } from 'antd';
+import { ReloadOutlined, OpenAIOutlined, SettingOutlined } from '@ant-design/icons';
 import {
   fetchDailySummary,
   refreshDailySummary,
   type DailySummaryPayload,
 } from '../api/summary';
+import {
+  fetchDailySummaryPrompt,
+  resetDailySummaryPrompt,
+  saveDailySummaryPrompt,
+} from '../api/settings';
 import MarkdownView from './MarkdownView';
 
 const { useBreakpoint } = Grid;
@@ -17,6 +22,12 @@ export default function DailySummaryCard() {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
+
+  const [promptOpen, setPromptOpen] = useState(false);
+  const [promptText, setPromptText] = useState('');
+  const [promptDefault, setPromptDefault] = useState('');
+  const [promptLoading, setPromptLoading] = useState(false);
+  const [promptSaving, setPromptSaving] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -59,6 +70,54 @@ export default function DailySummaryCard() {
     }
   };
 
+  const openPromptEditor = async () => {
+    setPromptOpen(true);
+    setPromptLoading(true);
+    try {
+      const r = await fetchDailySummaryPrompt();
+      setPromptText(r.prompt);
+      setPromptDefault(r.default);
+    } catch {
+      message.error('读取提示词失败');
+    } finally {
+      setPromptLoading(false);
+    }
+  };
+
+  const handleSavePrompt = async () => {
+    const text = promptText.trim();
+    if (!text) {
+      message.warning('提示词不能为空');
+      return;
+    }
+    setPromptSaving(true);
+    try {
+      const r = await saveDailySummaryPrompt(text);
+      setPromptText(r.prompt);
+      message.success('提示词已保存');
+      setPromptOpen(false);
+    } catch (e) {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      message.error(detail || '保存失败');
+    } finally {
+      setPromptSaving(false);
+    }
+  };
+
+  const handleResetPrompt = async () => {
+    setPromptSaving(true);
+    try {
+      const r = await resetDailySummaryPrompt();
+      setPromptText(r.prompt);
+      setPromptDefault(r.default);
+      message.success('已恢复默认提示词');
+    } catch {
+      message.error('重置失败');
+    } finally {
+      setPromptSaving(false);
+    }
+  };
+
   return (
     <Card
       size="small"
@@ -70,14 +129,24 @@ export default function DailySummaryCard() {
         </Space>
       }
       extra={
-        <Button
-          icon={<ReloadOutlined />}
-          size="small"
-          loading={refreshing}
-          onClick={handleRefresh}
-        >
-          {data ? '重新生成' : '生成'}
-        </Button>
+        <Space size={4}>
+          <Tooltip title="修改默认提示词">
+            <Button
+              icon={<SettingOutlined />}
+              size="small"
+              type="text"
+              onClick={openPromptEditor}
+            />
+          </Tooltip>
+          <Button
+            icon={<ReloadOutlined />}
+            size="small"
+            loading={refreshing}
+            onClick={handleRefresh}
+          >
+            {data ? '重新生成' : '生成'}
+          </Button>
+        </Space>
       }
       style={{ marginTop: isMobile ? 12 : 16 }}
     >
@@ -106,6 +175,35 @@ export default function DailySummaryCard() {
           <Empty description={hint || '点击「生成」获取今日总结'} image={Empty.PRESENTED_IMAGE_SIMPLE} />
         )}
       </Spin>
+
+      <Modal
+        title="收盘总结 · 默认提示词"
+        open={promptOpen}
+        onCancel={() => setPromptOpen(false)}
+        onOk={handleSavePrompt}
+        confirmLoading={promptSaving}
+        okText="保存"
+        cancelText="取消"
+        width={640}
+        destroyOnHidden
+      >
+        <Spin spinning={promptLoading}>
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 8, fontSize: 12 }}>
+            该提示词会随系统注入的「当日数据」一起发送给本地 Hermes Agent。
+          </Typography.Paragraph>
+          <Input.TextArea
+            value={promptText}
+            onChange={(e) => setPromptText(e.target.value)}
+            autoSize={{ minRows: 10, maxRows: 18 }}
+            placeholder={promptDefault}
+          />
+          <div style={{ marginTop: 8, textAlign: 'right' }}>
+            <Button size="small" type="link" onClick={handleResetPrompt} loading={promptSaving}>
+              恢复默认
+            </Button>
+          </div>
+        </Spin>
+      </Modal>
     </Card>
   );
 }

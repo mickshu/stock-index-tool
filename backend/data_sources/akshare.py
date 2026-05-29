@@ -269,8 +269,74 @@ class AkshareDataSource(BaseDataSource):
                 return None
         return None
 
+    _EMPTY_QUOTE_EXTRAS: dict = {
+        "volume": None,
+        "amount": None,
+        "main_net": None,
+        "main_net_ratio": None,
+    }
+
+    def _em_ulist_quotes(self, codes: list[str]) -> dict[str, dict]:
+        """EastMoney ulist.np 批量行情 + 资金流。返回 {code: 标准化 quote dict}。"""
+        codes = [c for c in (codes or []) if c]
+        if not codes:
+            return {}
+        secids = ",".join(self._em_secid(c) for c in codes)
+        fields = "f12,f14,f2,f3,f5,f6,f62,f184"
+        try:
+            resp = requests.get(
+                "https://push2.eastmoney.com/api/qt/ulist.np/get",
+                params={"secids": secids, "fields": fields, "fltt": "2", "invt": "2"},
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+                    ),
+                    "Referer": "https://quote.eastmoney.com/",
+                },
+                timeout=6,
+            )
+            resp.raise_for_status()
+            data = (resp.json() or {}).get("data") or {}
+            diff = data.get("diff") or []
+            if isinstance(diff, dict):
+                diff = list(diff.values())
+        except Exception:
+            logger.exception("EastMoney ulist quote fetch failed for %s", codes)
+            return {}
+        out: dict[str, dict] = {}
+        for row in diff:
+            if not isinstance(row, dict):
+                continue
+            code = str(row.get("f12") or "").zfill(6)
+            if not code:
+                continue
+            volume_hand = _to_float(row.get("f5"))
+            out[code] = {
+                "code": code,
+                "name": str(row.get("f14") or ""),
+                "price": _to_float(row.get("f2")) or 0,
+                "change_pct": _to_float(row.get("f3")) or 0,
+                "volume": (volume_hand * 100) if volume_hand is not None else None,
+                "amount": _to_float(row.get("f6")),
+                "main_net": _to_float(row.get("f62")),
+                "main_net_ratio": _to_float(row.get("f184")),
+            }
+        return out
+
+    def get_quotes_batch(self, codes: list[str]) -> list[dict]:
+        """批量行情；EM 一次往返，缺失项回退到单股路径。"""
+        codes = [str(c).zfill(6) for c in (codes or []) if c]
+        if not codes:
+            return []
+        em = self._em_ulist_quotes(codes)
+        return [em.get(c) or self.get_realtime_quote(c) for c in codes]
+
     def get_realtime_quote(self, code: str) -> dict:
-        # 主源 腾讯（极稳定）→ EM spot wrapper（限流时易失败）→ 仅名称兜底
+        # 优先 EM ulist 一次拿齐 行情 + 资金流；失败回退 腾讯 → EM spot → 名称兜底
+        em = self._em_ulist_quotes([code]).get(code)
+        if em:
+            return em
         qt = self._tencent_quote(code)
         if qt:
             price = _to_float(qt[3]) if len(qt) > 3 else None
@@ -280,10 +346,11 @@ class AkshareDataSource(BaseDataSource):
                 "name": qt[1] or "",
                 "price": price if price is not None else 0,
                 "change_pct": change_pct if change_pct is not None else 0,
+                **self._EMPTY_QUOTE_EXTRAS,
             }
         row = self._get_em_spot_row(code)
         if row is None:
-            return self._fallback_quote(code)
+            return {**self._fallback_quote(code), **self._EMPTY_QUOTE_EXTRAS}
         try:
             price = _to_float(row.get("最新价"))
             change_pct = _to_float(row.get("涨跌幅"))
@@ -292,9 +359,10 @@ class AkshareDataSource(BaseDataSource):
                 "name": str(row.get("名称") or ""),
                 "price": price if price is not None else 0,
                 "change_pct": change_pct if change_pct is not None else 0,
+                **self._EMPTY_QUOTE_EXTRAS,
             }
         except (TypeError, ValueError):
-            return self._fallback_quote(code)
+            return {**self._fallback_quote(code), **self._EMPTY_QUOTE_EXTRAS}
 
     def _fallback_quote(self, code: str) -> dict:
         try:

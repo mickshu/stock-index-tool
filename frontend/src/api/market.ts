@@ -29,11 +29,23 @@ export interface QuoteData {
   name: string;
   price: number;
   change_pct: number;
+  volume?: number | null;
+  amount?: number | null;
+  main_net?: number | null;
+  main_net_ratio?: number | null;
 }
 
 export async function fetchQuote(code: string): Promise<QuoteData> {
   const { data } = await api.get<QuoteData>('/market/quote', { params: { code } });
   return data;
+}
+
+export async function fetchQuotes(codes: string[]): Promise<QuoteData[]> {
+  if (!codes || codes.length === 0) return [];
+  const { data } = await api.get<{ quotes: QuoteData[] }>('/market/quotes', {
+    params: { codes: codes.join(',') },
+  });
+  return data.quotes || [];
 }
 
 export interface Fundamentals {

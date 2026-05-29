@@ -1,7 +1,27 @@
 import api from './client';
 
-export type AiProvider = 'openai' | 'anthropic';
+export type AiProvider = 'hermes' | 'openai' | 'anthropic';
 export type SearchProvider = 'none' | 'tavily';
+
+export interface DailySummaryPrompt {
+  prompt: string;
+  default: string;
+}
+
+export async function fetchDailySummaryPrompt(): Promise<DailySummaryPrompt> {
+  const { data } = await api.get<DailySummaryPrompt>('/settings/daily-summary-prompt');
+  return data;
+}
+
+export async function saveDailySummaryPrompt(prompt: string): Promise<DailySummaryPrompt> {
+  const { data } = await api.put<DailySummaryPrompt>('/settings/daily-summary-prompt', { prompt });
+  return data;
+}
+
+export async function resetDailySummaryPrompt(): Promise<DailySummaryPrompt> {
+  const { data } = await api.post<DailySummaryPrompt>('/settings/daily-summary-prompt/reset');
+  return data;
+}
 
 export interface AiSettings {
   provider: AiProvider;

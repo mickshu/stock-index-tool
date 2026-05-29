@@ -1,14 +1,7 @@
 """AI 收盘总结服务。
 
-支持两种 provider：
-- openai 兼容（OpenAI / DeepSeek / Moonshot / SiliconFlow / vLLM 等）
-- anthropic Claude
-
-内置两个工具：
-- web_search（Tavily）— 未配置 Tavily key 时返回提示，模型可降级
-- web_fetch（直接 GET + BeautifulSoup 提正文）
-
-工具调用以多轮循环驱动，上限 5 轮。
+主路径：本地 Hermes Agent CLI（subprocess，自带联网/工具）。
+保留：OpenAI / Anthropic 直连 + Tavily 工具循环，作为没有 hermes 时的备选。
 """
 
 from __future__ import annotations
@@ -20,17 +13,30 @@ from typing import Any
 
 import requests
 
+from backend.services.ai_agent import get_agent, run_agent
+
 logger = logging.getLogger(__name__)
 
 MAX_TOOL_LOOPS = 5
 WEB_FETCH_MAX_CHARS = 8000
 TAVILY_URL = "https://api.tavily.com/search"
+HERMES_TIMEOUT = 300
 
 SYSTEM_PROMPT = (
     "你是 A 股每日收盘资讯总结助手。基于用户给出的指数行情、个股资金流 TOP10、行业板块"
     "资金流 TOP5 数据，结合 web_search 与 web_fetch 获取的最新新闻，给出当日中文收盘综"
     "述：①大盘表现 ②资金动向 ③热点板块/个股 ④消息面要点 ⑤明日关注。要求：客观、紧扣"
     "数据、注明信息来源（用 markdown 链接），不超过 600 字。"
+)
+
+DEFAULT_HERMES_PROMPT = (
+    "你是 A 股每日收盘资讯总结助手。下方「当日数据」由系统给出（指数行情、主力资金 TOP、"
+    "行业板块资金 TOP）。请：\n"
+    "1. 主动联网检索今日 A 股相关的政策面、消息面、热点板块、龙头个股动态；\n"
+    "2. 综合数据与新闻，给出一份中文 markdown 收盘综述，分五段：\n"
+    "   ① 大盘表现  ② 资金动向  ③ 热点板块 / 个股  ④ 消息面要点  ⑤ 明日关注；\n"
+    "3. 客观、紧扣数据，全文不超过 600 字；引用新闻请用 markdown 链接形式注明出处；\n"
+    "4. 不要给出具体买卖建议。"
 )
 
 TOOLS_OPENAI_SCHEMA = [
@@ -286,6 +292,22 @@ def _run_anthropic(settings: dict, user_msg: str) -> tuple[str, str, list[str]]:
     return "".join(parts).strip(), model, sources
 
 
+def _run_hermes(settings: dict, user_msg: str) -> tuple[str, str, list[str]]:
+    spec = get_agent("hermes")
+    if spec is None:
+        raise RuntimeError("hermes agent 未注册")
+    prompt_template = (settings or {}).get("daily_summary_prompt") or DEFAULT_HERMES_PROMPT
+    prompt = f"{prompt_template.strip()}\n\n{user_msg}"
+    result = run_agent("hermes", prompt, timeout=HERMES_TIMEOUT)
+    if not result.get("ok"):
+        stderr = (result.get("stderr") or "").strip()
+        raise RuntimeError(f"Hermes 执行失败 (exit={result.get('exit_code')})：{stderr or '无输出'}")
+    output = (result.get("output") or "").strip()
+    if not output:
+        raise RuntimeError("Hermes 无输出")
+    return output, "hermes", []
+
+
 def generate_daily_summary(
     indices: list[dict],
     stock_flow: dict,
@@ -294,12 +316,15 @@ def generate_daily_summary(
 ) -> dict:
     """主入口。settings 来自 AppSetting kv（已解密的明文 dict）。
 
+    优先走本地 Hermes Agent；显式 provider=openai/anthropic 时走老 LLM 直连路径。
     返回 {model, content, sources, generated_at}。
     """
-    provider = (settings or {}).get("provider") or "openai"
+    provider = (settings or {}).get("provider") or "hermes"
     user_msg = _user_context(indices, stock_flow, sector_flow)
 
-    if provider == "anthropic":
+    if provider == "hermes":
+        content, model, sources = _run_hermes(settings, user_msg)
+    elif provider == "anthropic":
         content, model, sources = _run_anthropic(settings, user_msg)
     else:
         content, model, sources = _run_openai(settings, user_msg)

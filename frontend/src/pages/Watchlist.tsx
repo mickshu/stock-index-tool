@@ -11,12 +11,10 @@ import {
   List,
   Tag,
   Grid,
-  Menu,
   Select,
   Input,
-  Row,
-  Col,
-  Card,
+  Tabs,
+  Tooltip,
   Empty,
 } from 'antd';
 import {
@@ -26,6 +24,8 @@ import {
   AppstoreOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
+import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
+import type { SorterResult, FilterValue } from 'antd/es/table/interface';
 import type { StockInfo, WatchlistGroup } from '../types';
 
 const { useBreakpoint } = Grid;
@@ -40,12 +40,27 @@ import {
   deleteGroup,
   setStockGroup,
 } from '../api/stocks';
-import { fetchQuote, type QuoteData } from '../api/market';
+import { fetchQuotes, type QuoteData } from '../api/market';
 
 const ALL_KEY = '__all__';
 const UNGROUPED_KEY = '__ungrouped__';
 
 type GroupFilter = typeof ALL_KEY | typeof UNGROUPED_KEY | number;
+
+function formatVolume(v: number | null | undefined): string {
+  if (v == null) return '—';
+  if (v >= 1e8) return `${(v / 1e8).toFixed(2)}亿`;
+  if (v >= 1e4) return `${(v / 1e4).toFixed(2)}万`;
+  return v.toFixed(0);
+}
+
+function formatMoney(v: number | null | undefined): string {
+  if (v == null) return '—';
+  const abs = Math.abs(v);
+  if (abs >= 1e8) return `${(v / 1e8).toFixed(2)}亿`;
+  if (abs >= 1e4) return `${(v / 1e4).toFixed(2)}万`;
+  return v.toFixed(0);
+}
 
 export default function Watchlist() {
   const navigate = useNavigate();
@@ -57,16 +72,21 @@ export default function Watchlist() {
   const [ungroupedCount, setUngroupedCount] = useState(0);
   const [filter, setFilter] = useState<GroupFilter>(ALL_KEY);
   const [loading, setLoading] = useState(false);
+
   const [modalOpen, setModalOpen] = useState(false);
   const [keyword, setKeyword] = useState('');
   const [searchResults, setSearchResults] = useState<StockInfo[]>([]);
   const [searching, setSearching] = useState(false);
   const [addTargetGroup, setAddTargetGroup] = useState<number | null>(null);
 
+  const [groupMgrOpen, setGroupMgrOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [renamingId, setRenamingId] = useState<number | null>(null);
   const [renameValue, setRenameValue] = useState('');
+
+  const [sortField, setSortField] = useState<string | null>(null);
+  const [sortOrder, setSortOrder] = useState<'ascend' | 'descend' | null>(null);
 
   const reloadGroups = async () => {
     try {
@@ -93,20 +113,20 @@ export default function Watchlist() {
       setData(rows);
       const seq = ++quoteSeqRef.current;
       setQuotes({});
-      Promise.all(
-        rows.map((r) =>
-          fetchQuote(r.code)
-            .then((q) => [r.code, q] as const)
-            .catch(() => null),
-        ),
-      ).then((results) => {
-        if (seq !== quoteSeqRef.current) return;
-        const next: Record<string, QuoteData> = {};
-        for (const item of results) {
-          if (item) next[item[0]] = item[1];
-        }
-        setQuotes(next);
-      });
+      if (rows.length === 0) return;
+      const codes = rows.map((r) => r.code);
+      fetchQuotes(codes)
+        .then((qs) => {
+          if (seq !== quoteSeqRef.current) return;
+          const next: Record<string, QuoteData> = {};
+          for (const q of qs) {
+            if (q?.code) next[q.code] = q;
+          }
+          setQuotes(next);
+        })
+        .catch(() => {
+          /* 静默 */
+        });
     } catch {
       message.error('加载自选股失败');
     } finally {
@@ -195,10 +215,9 @@ export default function Watchlist() {
     if (!name) return;
     setCreatingGroup(true);
     try {
-      const g = await createGroup(name);
+      await createGroup(name);
       setNewGroupName('');
       await reloadGroups();
-      setFilter(g.id);
     } catch (e) {
       const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
       message.error(detail || '创建分组失败');
@@ -247,94 +266,62 @@ export default function Watchlist() {
     }
   };
 
-  const groupNameById = useMemo(() => {
-    const map = new Map<number, string>();
-    groups.forEach((g) => map.set(g.id, g.name));
-    return map;
-  }, [groups]);
-
   const totalCount = ungroupedCount + groups.reduce((sum, g) => sum + (g.count ?? 0), 0);
+
+  const tabItems = [
+    { key: ALL_KEY, label: <Space size={4}>全部 <Tag>{totalCount}</Tag></Space> },
+    { key: UNGROUPED_KEY, label: <Space size={4}>未分组 <Tag>{ungroupedCount}</Tag></Space> },
+    ...groups.map((g) => ({
+      key: String(g.id),
+      label: <Space size={4}>{g.name} <Tag>{g.count ?? 0}</Tag></Space>,
+    })),
+  ];
+
+  const handleTabChange = (key: string) => {
+    if (key === ALL_KEY || key === UNGROUPED_KEY) setFilter(key as GroupFilter);
+    else setFilter(Number(key));
+  };
+
+  const sortedData = useMemo(() => {
+    if (!sortField || !sortOrder) return data;
+    const getVal = (s: StockInfo): number => {
+      const q = quotes[s.code];
+      if (!q) return Number.NEGATIVE_INFINITY;
+      switch (sortField) {
+        case 'price': return q.price ?? Number.NEGATIVE_INFINITY;
+        case 'change_pct': return q.change_pct ?? Number.NEGATIVE_INFINITY;
+        case 'volume': return q.volume ?? Number.NEGATIVE_INFINITY;
+        case 'main_net_in': return (q.main_net ?? 0) > 0 ? (q.main_net as number) : Number.NEGATIVE_INFINITY;
+        case 'main_net_out': return (q.main_net ?? 0) < 0 ? -(q.main_net as number) : Number.NEGATIVE_INFINITY;
+        default: return 0;
+      }
+    };
+    const dir = sortOrder === 'ascend' ? 1 : -1;
+    return [...data].sort((a, b) => (getVal(a) - getVal(b)) * dir);
+  }, [data, quotes, sortField, sortOrder]);
 
   const filterLabel =
     filter === ALL_KEY
       ? '全部'
       : filter === UNGROUPED_KEY
       ? '未分组'
-      : groupNameById.get(filter as number) || '分组';
+      : groups.find((g) => g.id === filter)?.name || '分组';
 
-  const groupMenuItems = [
-    { key: ALL_KEY, label: <Space>全部 <Tag>{totalCount}</Tag></Space> },
-    { key: UNGROUPED_KEY, label: <Space>未分组 <Tag>{ungroupedCount}</Tag></Space> },
-    ...(groups.length ? [{ type: 'divider' as const }] : []),
-    ...groups.map((g) => ({
-      key: String(g.id),
-      label: (
-        <Row justify="space-between" align="middle" wrap={false}>
-          <Col flex="auto" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {renamingId === g.id ? (
-              <Input
-                size="small"
-                autoFocus
-                value={renameValue}
-                onChange={(e) => setRenameValue(e.target.value)}
-                onPressEnter={() => handleRenameGroup(g.id)}
-                onBlur={() => handleRenameGroup(g.id)}
-                onClick={(e) => e.stopPropagation()}
-              />
-            ) : (
-              <span>{g.name}</span>
-            )}
-          </Col>
-          <Col>
-            <Space size={0}>
-              <Tag style={{ marginRight: 4 }}>{g.count ?? 0}</Tag>
-              <Button
-                type="text"
-                size="small"
-                icon={<EditOutlined />}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setRenamingId(g.id);
-                  setRenameValue(g.name);
-                }}
-              />
-              <Popconfirm
-                title={`删除分组「${g.name}」？组内股票将变为未分组`}
-                onConfirm={(e) => {
-                  e?.stopPropagation();
-                  handleDeleteGroup(g.id);
-                }}
-                onCancel={(e) => e?.stopPropagation()}
-              >
-                <Button
-                  type="text"
-                  size="small"
-                  danger
-                  icon={<DeleteOutlined />}
-                  onClick={(e) => e.stopPropagation()}
-                />
-              </Popconfirm>
-            </Space>
-          </Col>
-        </Row>
-      ),
-    })),
-  ];
-
-  // Mobile card list
   const renderMobileList = () => {
-    if (data.length === 0 && !loading) {
+    if (sortedData.length === 0 && !loading) {
       return <Empty description="该分组暂无股票" />;
     }
     return (
       <List
         loading={loading}
-        dataSource={data}
+        dataSource={sortedData}
         renderItem={(record) => {
           const q = quotes[record.code];
           const changeColor = q?.change_pct != null
             ? q.change_pct > 0 ? '#cf1322' : q.change_pct < 0 ? '#3f8600' : undefined
             : undefined;
+          const mainNet = q?.main_net ?? null;
+          const mainColor = mainNet != null && mainNet > 0 ? '#cf1322' : mainNet != null && mainNet < 0 ? '#3f8600' : undefined;
           return (
             <div
               style={{
@@ -371,20 +358,12 @@ export default function Watchlist() {
                   </Typography.Text>
                 )}
               </div>
-              {groups.length > 0 && (
-                <div style={{ marginTop: 6 }}>
-                  <Select
-                    size="small"
-                    style={{ width: 120 }}
-                    value={record.group_id ?? null}
-                    onChange={(val) => record.id != null && handleMoveStock(record.id, val)}
-                    options={[
-                      { value: null as number | null, label: '未分组' },
-                      ...groups.map((g) => ({ value: g.id, label: g.name })),
-                    ]}
-                  />
-                </div>
-              )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 12 }}>
+                <Typography.Text type="secondary">成交 {formatVolume(q?.volume)}</Typography.Text>
+                <Typography.Text style={{ color: mainColor }}>
+                  主力 {mainNet != null ? `${mainNet > 0 ? '+' : ''}${formatMoney(mainNet)}` : '—'}
+                </Typography.Text>
+              </div>
             </div>
           );
         }}
@@ -392,16 +371,17 @@ export default function Watchlist() {
     );
   };
 
-  // Desktop table
-  const desktopColumns = [
+  const desktopColumns: ColumnsType<StockInfo> = [
     { title: '代码', dataIndex: 'code', key: 'code', width: 90 },
-    { title: '名称', dataIndex: 'name', key: 'name' },
+    { title: '名称', dataIndex: 'name', key: 'name', width: 110 },
     {
       title: '最新价',
       key: 'price',
       width: 90,
-      align: 'right' as const,
-      render: (_: unknown, record: StockInfo) => {
+      align: 'right',
+      sorter: true,
+      sortOrder: sortField === 'price' ? sortOrder : null,
+      render: (_, record) => {
         const q = quotes[record.code];
         if (!q || !(q.price > 0)) return <Typography.Text type="secondary">—</Typography.Text>;
         return <Typography.Text strong>{q.price.toFixed(2)}</Typography.Text>;
@@ -411,8 +391,10 @@ export default function Watchlist() {
       title: '涨跌幅',
       key: 'change_pct',
       width: 90,
-      align: 'right' as const,
-      render: (_: unknown, record: StockInfo) => {
+      align: 'right',
+      sorter: true,
+      sortOrder: sortField === 'change_pct' ? sortOrder : null,
+      render: (_, record) => {
         const q = quotes[record.code];
         if (!q || q.change_pct == null) return <Typography.Text type="secondary">—</Typography.Text>;
         const v = q.change_pct;
@@ -422,13 +404,53 @@ export default function Watchlist() {
       },
     },
     {
+      title: '最新成交量',
+      key: 'volume',
+      width: 110,
+      align: 'right',
+      sorter: true,
+      sortOrder: sortField === 'volume' ? sortOrder : null,
+      render: (_, record) => {
+        const q = quotes[record.code];
+        return <Typography.Text>{formatVolume(q?.volume)}</Typography.Text>;
+      },
+    },
+    {
+      title: '主力净流入',
+      key: 'main_net_in',
+      width: 110,
+      align: 'right',
+      sorter: true,
+      sortOrder: sortField === 'main_net_in' ? sortOrder : null,
+      render: (_, record) => {
+        const q = quotes[record.code];
+        const v = q?.main_net;
+        if (v == null || v <= 0) return <Typography.Text type="secondary">—</Typography.Text>;
+        return <Typography.Text strong style={{ color: '#cf1322' }}>{formatMoney(v)}</Typography.Text>;
+      },
+    },
+    {
+      title: '主力净流出',
+      key: 'main_net_out',
+      width: 110,
+      align: 'right',
+      sorter: true,
+      sortOrder: sortField === 'main_net_out' ? sortOrder : null,
+      render: (_, record) => {
+        const q = quotes[record.code];
+        const v = q?.main_net;
+        if (v == null || v >= 0) return <Typography.Text type="secondary">—</Typography.Text>;
+        return <Typography.Text strong style={{ color: '#3f8600' }}>{formatMoney(-v)}</Typography.Text>;
+      },
+    },
+    {
       title: '分组',
       key: 'group',
-      width: 160,
-      render: (_: unknown, record: StockInfo) => (
+      width: 140,
+      render: (_, record) => (
         <Select
           size="small"
-          style={{ width: 140 }}
+          style={{ width: 130 }}
           value={record.group_id ?? null}
           onChange={(val) => record.id != null && handleMoveStock(record.id, val)}
           options={[
@@ -442,7 +464,7 @@ export default function Watchlist() {
       title: '操作',
       key: 'actions',
       width: 120,
-      render: (_: unknown, record: StockInfo) => (
+      render: (_, record) => (
         <Space>
           <Button type="link" size="small" onClick={() => navigate(`/stock/${record.code}`)}>
             分析
@@ -458,160 +480,253 @@ export default function Watchlist() {
     },
   ];
 
-  return (
-    <Row gutter={isMobile ? 0 : 16}>
-      <Col xs={24} md={6} lg={5}>
-        <Card
-          size="small"
-          title={<Space><AppstoreOutlined />分组</Space>}
-          styles={{ body: { padding: 0 } }}
-          style={{ marginBottom: isMobile ? 12 : 0 }}
-        >
-          <Menu
-            mode="inline"
-            selectedKeys={[String(filter)]}
-            onClick={({ key }) => {
-              if (key === ALL_KEY || key === UNGROUPED_KEY) setFilter(key as GroupFilter);
-              else setFilter(Number(key));
-            }}
-            items={groupMenuItems}
-          />
-          <div style={{ padding: 8, borderTop: '1px solid #f0f0f0' }}>
-            <Space.Compact style={{ width: '100%' }}>
-              <Input
-                size="small"
-                placeholder="新建分组"
-                value={newGroupName}
-                onChange={(e) => setNewGroupName(e.target.value)}
-                onPressEnter={handleCreateGroup}
-                maxLength={50}
-              />
-              <Button
-                size="small"
-                type="primary"
-                loading={creatingGroup}
-                onClick={handleCreateGroup}
-                disabled={!newGroupName.trim()}
-              >
-                添加
-              </Button>
-            </Space.Compact>
-          </div>
-        </Card>
-      </Col>
+  const handleTableChange = (
+    _pagination: TablePaginationConfig,
+    _filters: Record<string, FilterValue | null>,
+    sorter: SorterResult<StockInfo> | SorterResult<StockInfo>[],
+  ) => {
+    const s = Array.isArray(sorter) ? sorter[0] : sorter;
+    if (s && s.order && s.columnKey) {
+      setSortField(String(s.columnKey));
+      setSortOrder(s.order);
+    } else {
+      setSortField(null);
+      setSortOrder(null);
+    }
+  };
 
-      <Col xs={24} md={18} lg={19}>
-        <Space style={{ marginBottom: isMobile ? 12 : 16 }} wrap>
-          <Typography.Title level={4} style={{ margin: 0 }}>
-            自选股 · {filterLabel}
-          </Typography.Title>
+  return (
+    <div>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          marginBottom: isMobile ? 8 : 12,
+          flexWrap: 'wrap',
+        }}
+      >
+        <Typography.Title level={4} style={{ margin: 0 }}>
+          自选股 · {filterLabel}
+        </Typography.Title>
+        <div style={{ flex: 1 }} />
+        <Button
+          type="primary"
+          icon={<PlusOutlined />}
+          onClick={() => {
+            setAddTargetGroup(typeof filter === 'number' ? (filter as number) : null);
+            setModalOpen(true);
+          }}
+        >
+          添加股票
+        </Button>
+      </div>
+
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          borderBottom: '1px solid #f0f0f0',
+          marginBottom: isMobile ? 8 : 12,
+        }}
+      >
+        <Tabs
+          activeKey={String(filter)}
+          onChange={handleTabChange}
+          items={tabItems}
+          style={{ flex: 1, marginBottom: -1 }}
+          size="small"
+        />
+        <Tooltip title="管理分组">
+          <Button
+            type="text"
+            size="small"
+            icon={<AppstoreOutlined />}
+            onClick={() => setGroupMgrOpen(true)}
+            style={{ marginRight: 8 }}
+          />
+        </Tooltip>
+      </div>
+
+      {isMobile ? (
+        renderMobileList()
+      ) : (
+        sortedData.length === 0 && !loading ? (
+          <Empty description="该分组暂无股票" />
+        ) : (
+          <Table
+            rowKey={(r) => String(r.id ?? r.code)}
+            columns={desktopColumns}
+            dataSource={sortedData}
+            loading={loading}
+            size="middle"
+            pagination={{ pageSize: 20 }}
+            scroll={{ x: 960 }}
+            onChange={handleTableChange}
+          />
+        )
+      )}
+
+      <Modal
+        title="添加股票"
+        open={modalOpen}
+        onCancel={() => {
+          setModalOpen(false);
+          setKeyword('');
+          setSearchResults([]);
+        }}
+        footer={null}
+        destroyOnHidden
+      >
+        <div style={{ marginBottom: 12 }}>
+          <Typography.Text type="secondary">加入分组：</Typography.Text>
+          <Select
+            style={{ width: 200, marginLeft: 8 }}
+            value={addTargetGroup}
+            onChange={(val) => setAddTargetGroup(val)}
+            options={[
+              { value: null as number | null, label: '未分组' },
+              ...groups.map((g) => ({ value: g.id, label: g.name })),
+            ]}
+          />
+        </div>
+
+        <AutoComplete
+          style={{ width: '100%', marginBottom: 12 }}
+          value={keyword}
+          onChange={handleKeywordChange}
+          onSelect={(value) => {
+            const stock = searchResults.find((s) => s.code === value);
+            if (stock) handleAdd(stock);
+          }}
+          placeholder="输入代码或名称，如 000001 或 平安"
+          notFoundContent={
+            searching ? '搜索中…' : keyword.trim() ? '未找到匹配结果' : null
+          }
+          options={searchResults.map((s) => ({
+            value: s.code,
+            label: (
+              <Space>
+                <Tag>{s.code}</Tag>
+                <span>{s.name}</span>
+                {s.market && (
+                  <Typography.Text type="secondary">[{s.market}]</Typography.Text>
+                )}
+              </Space>
+            ),
+          }))}
+          allowClear
+        />
+
+        <List
+          size="small"
+          bordered
+          dataSource={searchResults}
+          locale={{ emptyText: '在上方搜索股票' }}
+          renderItem={(item) => (
+            <List.Item
+              actions={[
+                <Button type="link" key="add" onClick={() => handleAdd(item)}>
+                  加入
+                </Button>,
+              ]}
+            >
+              <Space>
+                <Tag>{item.code}</Tag>
+                <span>{item.name}</span>
+                {item.market && (
+                  <Typography.Text type="secondary">[{item.market}]</Typography.Text>
+                )}
+              </Space>
+            </List.Item>
+          )}
+        />
+      </Modal>
+
+      <Modal
+        title={<Space><AppstoreOutlined />分组管理</Space>}
+        open={groupMgrOpen}
+        onCancel={() => {
+          setGroupMgrOpen(false);
+          setRenamingId(null);
+          setRenameValue('');
+        }}
+        footer={null}
+        destroyOnHidden
+        width={460}
+      >
+        <Space.Compact style={{ width: '100%', marginBottom: 12 }}>
+          <Input
+            placeholder="新建分组名称"
+            value={newGroupName}
+            onChange={(e) => setNewGroupName(e.target.value)}
+            onPressEnter={handleCreateGroup}
+            maxLength={50}
+          />
           <Button
             type="primary"
+            loading={creatingGroup}
+            onClick={handleCreateGroup}
+            disabled={!newGroupName.trim()}
             icon={<PlusOutlined />}
-            onClick={() => {
-              setAddTargetGroup(typeof filter === 'number' ? (filter as number) : null);
-              setModalOpen(true);
-            }}
-            block={isMobile}
           >
-            添加股票
+            新建
           </Button>
-        </Space>
+        </Space.Compact>
 
-        {isMobile ? (
-          renderMobileList()
+        {groups.length === 0 ? (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无分组" />
         ) : (
-          data.length === 0 && !loading ? (
-            <Empty description="该分组暂无股票" />
-          ) : (
-            <Table
-              rowKey={(r) => String(r.id ?? r.code)}
-              columns={desktopColumns}
-              dataSource={data}
-              loading={loading}
-              size="middle"
-              pagination={{ pageSize: 20 }}
-              scroll={{ x: 520 }}
-            />
-          )
-        )}
-
-        <Modal
-          title="添加股票"
-          open={modalOpen}
-          onCancel={() => {
-            setModalOpen(false);
-            setKeyword('');
-            setSearchResults([]);
-          }}
-          footer={null}
-          destroyOnHidden
-        >
-          <div style={{ marginBottom: 12 }}>
-            <Typography.Text type="secondary">加入分组：</Typography.Text>
-            <Select
-              style={{ width: 200, marginLeft: 8 }}
-              value={addTargetGroup}
-              onChange={(val) => setAddTargetGroup(val)}
-              options={[
-                { value: null as number | null, label: '未分组' },
-                ...groups.map((g) => ({ value: g.id, label: g.name })),
-              ]}
-            />
-          </div>
-
-          <AutoComplete
-            style={{ width: '100%', marginBottom: 12 }}
-            value={keyword}
-            onChange={handleKeywordChange}
-            onSelect={(value) => {
-              const stock = searchResults.find((s) => s.code === value);
-              if (stock) handleAdd(stock);
-            }}
-            placeholder="输入代码或名称，如 000001 或 平安"
-            notFoundContent={
-              searching ? '搜索中…' : keyword.trim() ? '未找到匹配结果' : null
-            }
-            options={searchResults.map((s) => ({
-              value: s.code,
-              label: (
-                <Space>
-                  <Tag>{s.code}</Tag>
-                  <span>{s.name}</span>
-                  {s.market && (
-                    <Typography.Text type="secondary">[{s.market}]</Typography.Text>
-                  )}
-                </Space>
-              ),
-            }))}
-            allowClear
-          />
-
           <List
             size="small"
             bordered
-            dataSource={searchResults}
-            locale={{ emptyText: '在上方搜索股票' }}
-            renderItem={(item) => (
+            dataSource={groups}
+            renderItem={(g) => (
               <List.Item
                 actions={[
-                  <Button type="link" key="add" onClick={() => handleAdd(item)}>
-                    加入
-                  </Button>,
-                ]}
+                  renamingId === g.id ? null : (
+                    <Button
+                      key="edit"
+                      type="link"
+                      size="small"
+                      icon={<EditOutlined />}
+                      onClick={() => {
+                        setRenamingId(g.id);
+                        setRenameValue(g.name);
+                      }}
+                    />
+                  ),
+                  <Popconfirm
+                    key="del"
+                    title={`删除分组「${g.name}」？组内股票将变为未分组`}
+                    onConfirm={() => handleDeleteGroup(g.id)}
+                  >
+                    <Button type="link" size="small" danger icon={<DeleteOutlined />} />
+                  </Popconfirm>,
+                ].filter(Boolean) as React.ReactNode[]}
               >
-                <Space>
-                  <Tag>{item.code}</Tag>
-                  <span>{item.name}</span>
-                  {item.market && (
-                    <Typography.Text type="secondary">[{item.market}]</Typography.Text>
-                  )}
-                </Space>
+                {renamingId === g.id ? (
+                  <Input
+                    size="small"
+                    autoFocus
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onPressEnter={() => handleRenameGroup(g.id)}
+                    onBlur={() => handleRenameGroup(g.id)}
+                    style={{ width: 200 }}
+                  />
+                ) : (
+                  <Space>
+                    <span>{g.name}</span>
+                    <Tag>{g.count ?? 0}</Tag>
+                  </Space>
+                )}
               </List.Item>
             )}
           />
-        </Modal>
-      </Col>
-    </Row>
+        )}
+      </Modal>
+    </div>
   );
 }

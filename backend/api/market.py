@@ -95,6 +95,17 @@ def get_quote(code: str = Query(..., description="Stock code, e.g. 000001")):
     return ds.get_realtime_quote(code)
 
 
+@router.get("/quotes")
+def get_quotes(codes: str = Query(..., description="逗号分隔股票代码，最多 80 个")):
+    items = [c.strip() for c in (codes or "").split(",") if c.strip()]
+    if not items:
+        return {"quotes": []}
+    if len(items) > 80:
+        raise HTTPException(status_code=400, detail="batch size too large (max 80)")
+    ds = get_data_source()
+    return {"quotes": ds.get_quotes_batch(items)}
+
+
 @router.get("/fundamentals")
 def get_fundamentals(code: str = Query(..., description="Stock code, e.g. 000001")):
     ds = get_data_source()

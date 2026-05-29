@@ -17,6 +17,10 @@ class BaseDataSource(ABC):
     def get_realtime_quote(self, code: str) -> dict:
         ...
 
+    def get_quotes_batch(self, codes: list[str]) -> list[dict]:
+        """批量行情。默认逐个回退到 get_realtime_quote；子类可覆盖以单次往返实现。"""
+        return [self.get_realtime_quote(c) for c in (codes or [])]
+
     @abstractmethod
     def get_index_data(self) -> list[dict]:
         ...

@@ -15,14 +15,15 @@ from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.models.models import AppSetting
-from backend.services.ai_summary import probe_llm, probe_tavily
+from backend.services.ai_summary import DEFAULT_HERMES_PROMPT, probe_llm, probe_tavily
 
 router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
 
 AI_KEY = "ai_config"
 SECRET_FIELDS = ("openai_api_key", "anthropic_api_key", "tavily_api_key")
+VALID_PROVIDERS = ("hermes", "openai", "anthropic")
 DEFAULT_AI: dict[str, Any] = {
-    "provider": "openai",
+    "provider": "hermes",
     "openai_base_url": "https://api.openai.com/v1",
     "openai_api_key": "",
     "openai_model": "gpt-4o-mini",
@@ -30,6 +31,7 @@ DEFAULT_AI: dict[str, Any] = {
     "anthropic_model": "claude-sonnet-4-6",
     "search_provider": "none",
     "tavily_api_key": "",
+    "daily_summary_prompt": DEFAULT_HERMES_PROMPT,
 }
 
 
@@ -72,6 +74,7 @@ class AiSettingsIn(BaseModel):
     anthropic_model: str | None = None
     search_provider: str | None = None
     tavily_api_key: str | None = None
+    daily_summary_prompt: str | None = None
 
 
 @router.get("/ai")
@@ -103,9 +106,20 @@ class AiTestIn(AiSettingsIn):
 
 @router.post("/ai/test")
 def test_ai_settings(payload: AiTestIn):
-    """对当前表单（合并已存密钥）发起最小调用，验证 LLM / Tavily 联通。"""
-    if payload.provider not in ("openai", "anthropic"):
-        raise HTTPException(status_code=400, detail="provider must be openai or anthropic")
+    """对当前表单（合并已存密钥）发起最小调用，验证 LLM / Tavily 联通。
+
+    provider=hermes 时无法在此处探测（需走 /ai-agent/probe），返回明确提示。
+    """
+    if payload.provider not in VALID_PROVIDERS:
+        raise HTTPException(status_code=400, detail=f"provider must be one of {VALID_PROVIDERS}")
+    if payload.provider == "hermes":
+        return {
+            "llm": {
+                "ok": False,
+                "error": "Hermes 走本地 CLI，无法在此探测；请在 /ai-agent/probe 查看是否检测到 hermes。",
+            },
+            "search": None,
+        }
     cfg = _merge_for_test(payload)
     out: dict[str, Any] = {"llm": None, "search": None}
     try:
@@ -122,8 +136,8 @@ def test_ai_settings(payload: AiTestIn):
 
 @router.put("/ai")
 def put_ai_settings(payload: AiSettingsIn):
-    if payload.provider not in ("openai", "anthropic"):
-        raise HTTPException(status_code=400, detail="provider must be openai or anthropic")
+    if payload.provider not in VALID_PROVIDERS:
+        raise HTTPException(status_code=400, detail=f"provider must be one of {VALID_PROVIDERS}")
     if payload.search_provider and payload.search_provider not in ("none", "tavily"):
         raise HTTPException(status_code=400, detail="search_provider must be none or tavily")
     current = _load_raw()
@@ -135,15 +149,51 @@ def put_ai_settings(payload: AiSettingsIn):
         if v == "" or v.startswith("****"):
             incoming.pop(k)
     current.update(incoming)
+    _write_raw(current)
+    return get_ai_settings()
+
+
+def _write_raw(cfg: dict[str, Any]) -> None:
     db: Session = next(get_db())
     try:
         row = db.get(AppSetting, AI_KEY)
+        text = json.dumps(cfg, ensure_ascii=False)
         if row is None:
-            row = AppSetting(key=AI_KEY, value=json.dumps(current, ensure_ascii=False))
-            db.add(row)
+            db.add(AppSetting(key=AI_KEY, value=text))
         else:
-            row.value = json.dumps(current, ensure_ascii=False)
+            row.value = text
         db.commit()
     finally:
         db.close()
-    return get_ai_settings()
+
+
+class DailySummaryPromptIn(BaseModel):
+    prompt: str
+
+
+@router.get("/daily-summary-prompt")
+def get_daily_summary_prompt():
+    cfg = _load_raw()
+    return {
+        "prompt": cfg.get("daily_summary_prompt") or DEFAULT_HERMES_PROMPT,
+        "default": DEFAULT_HERMES_PROMPT,
+    }
+
+
+@router.put("/daily-summary-prompt")
+def put_daily_summary_prompt(payload: DailySummaryPromptIn):
+    text = (payload.prompt or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="prompt 不能为空")
+    cfg = _load_raw()
+    cfg["daily_summary_prompt"] = text
+    _write_raw(cfg)
+    return {"prompt": text, "default": DEFAULT_HERMES_PROMPT}
+
+
+@router.post("/daily-summary-prompt/reset")
+def reset_daily_summary_prompt():
+    cfg = _load_raw()
+    cfg["daily_summary_prompt"] = DEFAULT_HERMES_PROMPT
+    _write_raw(cfg)
+    return {"prompt": DEFAULT_HERMES_PROMPT, "default": DEFAULT_HERMES_PROMPT}
