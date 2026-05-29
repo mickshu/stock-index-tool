@@ -5,6 +5,7 @@ import {
   StarOutlined,
   SearchOutlined,
   SettingOutlined,
+  ExperimentOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 

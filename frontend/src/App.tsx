@@ -7,6 +7,7 @@ import Watchlist from './pages/Watchlist';
 import StockDetail from './pages/StockDetail';
 import Screener from './pages/Screener';
 import Settings from './pages/Settings';
+import AIAnalysis from './pages/AIAnalysis';
 
 export default function App() {
   return (
