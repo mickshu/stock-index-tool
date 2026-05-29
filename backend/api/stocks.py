@@ -100,6 +100,28 @@ def update_group(group_id: int, payload: dict = Body(...)):
         db.close()
 
 
+@router.put("/groups/order")
+def reorder_groups(payload: dict = Body(...)):
+    """按 ids 数组顺序写入 sort_order（下标即顺序）。"""
+    ids = payload.get("ids")
+    if not isinstance(ids, list) or not all(isinstance(i, int) for i in ids):
+        raise HTTPException(status_code=400, detail="ids 必须为整数数组")
+    db: Session = next(get_db())
+    try:
+        existing = {
+            g.id: g for g in db.execute(select(WatchlistGroup)).scalars().all()
+        }
+        unknown = [i for i in ids if i not in existing]
+        if unknown:
+            raise HTTPException(status_code=400, detail=f"分组不存在：{unknown}")
+        for idx, gid in enumerate(ids):
+            existing[gid].sort_order = idx
+        db.commit()
+        return {"ok": True, "count": len(ids)}
+    finally:
+        db.close()
+
+
 @router.delete("/groups/{group_id}")
 def delete_group(group_id: int):
     db: Session = next(get_db())

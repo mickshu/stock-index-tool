@@ -22,6 +22,7 @@ import {
   EditOutlined,
   DeleteOutlined,
   AppstoreOutlined,
+  HolderOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
@@ -38,6 +39,7 @@ import {
   createGroup,
   renameGroup,
   deleteGroup,
+  reorderGroups,
   setStockGroup,
 } from '../api/stocks';
 import { fetchQuotes, type QuoteData } from '../api/market';
@@ -87,6 +89,27 @@ export default function Watchlist() {
 
   const [sortField, setSortField] = useState<string | null>(null);
   const [sortOrder, setSortOrder] = useState<'ascend' | 'descend' | null>(null);
+
+  const dragIndexRef = useRef<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  const handleGroupDrop = async (targetIndex: number) => {
+    const from = dragIndexRef.current;
+    dragIndexRef.current = null;
+    setDragOverIndex(null);
+    if (from == null || from === targetIndex) return;
+    const next = [...groups];
+    const [moved] = next.splice(from, 1);
+    next.splice(targetIndex, 0, moved);
+    setGroups(next);
+    try {
+      await reorderGroups(next.map((g) => g.id));
+      reloadGroups();
+    } catch {
+      message.error('排序保存失败');
+      reloadGroups();
+    }
+  };
 
   const reloadGroups = async () => {
     try {
@@ -682,8 +705,29 @@ export default function Watchlist() {
             size="small"
             bordered
             dataSource={groups}
-            renderItem={(g) => (
+            renderItem={(g, index) => (
               <List.Item
+                draggable
+                onDragStart={(e) => {
+                  dragIndexRef.current = index;
+                  e.dataTransfer.effectAllowed = 'move';
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = 'move';
+                  if (dragOverIndex !== index) setDragOverIndex(index);
+                }}
+                onDragLeave={() => {
+                  if (dragOverIndex === index) setDragOverIndex(null);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  handleGroupDrop(index);
+                }}
+                style={{
+                  cursor: 'move',
+                  background: dragOverIndex === index ? '#e6f4ff' : undefined,
+                }}
                 actions={[
                   renamingId === g.id ? null : (
                     <Button
@@ -718,6 +762,7 @@ export default function Watchlist() {
                   />
                 ) : (
                   <Space>
+                    <HolderOutlined style={{ color: '#bfbfbf' }} />
                     <span>{g.name}</span>
                     <Tag>{g.count ?? 0}</Tag>
                   </Space>

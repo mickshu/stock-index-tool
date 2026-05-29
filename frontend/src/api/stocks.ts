@@ -64,6 +64,10 @@ export async function deleteGroup(id: number): Promise<void> {
   await api.delete(`/stocks/groups/${id}`);
 }
 
+export async function reorderGroups(ids: number[]): Promise<void> {
+  await api.put('/stocks/groups/order', { ids });
+}
+
 export async function setStockGroup(stockId: number, groupId: number | null): Promise<StockInfo> {
   const { data } = await api.patch<StockInfo>(`/stocks/${stockId}`, { group_id: groupId });
   return data;

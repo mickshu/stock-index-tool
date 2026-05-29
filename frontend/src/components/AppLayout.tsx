@@ -39,7 +39,7 @@ export default function AppLayout() {
             level={5}
             style={{ color: 'white', textAlign: 'center', margin: '16px 0' }}
           >
-            {collapsed ? '股' : '股票分析'}
+            {collapsed ? 'AI' : 'AI 股票分析'}
           </Typography.Title>
           <Menu
             theme="dark"
