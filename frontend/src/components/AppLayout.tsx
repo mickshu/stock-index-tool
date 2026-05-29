@@ -15,6 +15,7 @@ const menuItems = [
   { key: '/', icon: <BarChartOutlined />, label: '行情' },
   { key: '/stocks', icon: <StarOutlined />, label: '自选' },
   { key: '/screener', icon: <SearchOutlined />, label: '选股' },
+  { key: '/ai', icon: <ExperimentOutlined />, label: 'AI 分析' },
   { key: '/settings', icon: <SettingOutlined />, label: '设置' },
 ];
 

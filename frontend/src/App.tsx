@@ -18,6 +18,7 @@ export default function App() {
             <Route path="stocks" element={<Watchlist />} />
             <Route path="stock/:code" element={<StockDetail />} />
             <Route path="screener" element={<Screener />} />
+            <Route path="ai" element={<AIAnalysis />} />
             <Route path="settings" element={<Settings />} />
           </Route>
         </Routes>

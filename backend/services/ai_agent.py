@@ -268,3 +268,125 @@ def read_report(filename: str) -> str | None:
         return path.read_text(encoding="utf-8")
     except Exception:
         return None
+
+
+# ===== v2: 多 scope 支持（PR-1 仅 single；其它 scope 留给 PR-2）=====
+
+
+def _stock_list_lines(targets: list[dict]) -> str:
+    lines = []
+    for t in targets or []:
+        code = (t.get("code") or "").strip()
+        name = (t.get("name") or "").strip()
+        label = f"{code} {name}".strip() if (code and name) else (name or code)
+        if label:
+            lines.append(f"  - {label}")
+    return "\n".join(lines)
+
+
+def build_prompt_v2(scope: str, targets: list[dict], dimensions: list[str]) -> str:
+    """按 scope 拼 prompt。支持 single / multi / sector / market / pick。"""
+    dim_text = "、".join(d.strip() for d in (dimensions or []) if d and d.strip()) or "综合"
+
+    if scope == "single":
+        if not targets:
+            raise ValueError("single scope requires one target")
+        t = targets[0]
+        code = (t.get("code") or "").strip()
+        name = (t.get("name") or "").strip()
+        name_part = f"{code} {name}".strip() if name else code
+        return (
+            f"你是 A 股投研助手。请针对以下股票给出客观的「{dim_text}」维度分析，"
+            f"用中文 markdown 输出，控制在 600 字以内，必要时附信息来源链接：\n\n"
+            f"- 股票：{name_part}\n"
+            f"- 分析维度：{dim_text}\n\n"
+            f"如果你具备联网或数据查询能力，请主动获取最近的行情、公告、研报与资金面信息。"
+            f"输出请包含：核心结论、关键证据、潜在风险、可关注信号；"
+            f"避免提供具体买卖建议。"
+        )
+
+    if scope == "multi":
+        if len(targets or []) < 2:
+            raise ValueError("multi scope requires at least 2 targets")
+        return (
+            f"你是 A 股投研助手。请对以下 {len(targets)} 只股票从「{dim_text}」维度做横向对比，"
+            f"用中文 markdown 输出，控制在 800 字以内，必要时附信息来源链接：\n\n"
+            f"股票列表：\n{_stock_list_lines(targets)}\n\n"
+            f"如果你具备联网或数据查询能力，请主动获取相关行情、公告、研报与资金面信息。\n"
+            f"输出请包含：①横向对比表  ②各家亮点与隐患  ③综合排序与理由  ④共同风险；"
+            f"避免提供具体买卖建议。"
+        )
+
+    if scope == "sector":
+        if not targets:
+            raise ValueError("sector scope requires at least 1 target")
+        names = [(t.get("sector") or t.get("name") or "").strip() for t in targets]
+        sector_list = "、".join(n for n in names if n) or "—"
+        return (
+            f"你是 A 股投研助手。请对以下行业/板块从「{dim_text}」给出研判，"
+            f"用中文 markdown 输出，控制在 800 字以内，必要时附信息来源链接：\n\n"
+            f"- 板块：{sector_list}\n"
+            f"- 分析维度：{dim_text}\n\n"
+            f"如果你具备联网或数据查询能力，请主动获取板块最近的政策、龙头公司动态、资金流向。\n"
+            f"输出请包含：①基本面/政策面催化  ②资金面动向  ③龙头与潜力个股梳理  ④风险点；"
+            f"避免提供具体买卖建议。"
+        )
+
+    if scope == "market":
+        if not targets:
+            raise ValueError("market scope requires at least 1 target")
+        names = [(t.get("name") or t.get("index") or "").strip() for t in targets]
+        idx_list = "、".join(n for n in names if n) or "大盘"
+        return (
+            f"你是 A 股投研助手。请对以下大盘指数做近期复盘，分析维度「{dim_text}」，"
+            f"用中文 markdown 输出，控制在 800 字以内，必要时附信息来源链接：\n\n"
+            f"- 指数：{idx_list}\n"
+            f"- 分析维度：{dim_text}\n\n"
+            f"如果你具备联网或数据查询能力，请主动获取最近的指数行情、资金面、消息面、热点板块。\n"
+            f"输出请包含：①指数表现  ②资金面与情绪  ③主要驱动/拖累板块  ④后市关注点；"
+            f"避免提供具体买卖建议。"
+        )
+
+    if scope == "pick":
+        if not targets:
+            raise ValueError("pick scope requires at least 1 target")
+        return (
+            f"你是 A 股投研助手。请对下列 {len(targets)} 只股票做批量诊断，每只从「{dim_text}」"
+            f"维度给出 100–200 字简评，最后给出整体排行与重点关注名单。"
+            f"用中文 markdown 输出，必要时附信息来源链接：\n\n"
+            f"股票列表：\n{_stock_list_lines(targets)}\n\n"
+            f"如果你具备联网或数据查询能力，请主动获取相关行情、公告、资金面信息。\n"
+            f"输出格式：①各股简评（小标题=股票名+代码）  ②整体排行表  ③重点关注理由  ④共同风险；"
+            f"避免提供具体买卖建议。"
+        )
+
+    raise ValueError(f"unknown scope: {scope}")
+
+
+def report_filename_v2(
+    scope: str,
+    targets: list[dict],
+    *,
+    now: datetime | None = None,
+) -> str:
+    """`YYYY-MM-DD_HHMMSS_<scope>_<slug>.md`，slug ≤ 60 字符。
+
+    保留时间戳，避免同日多次分析覆盖。
+    """
+    ts = (now or datetime.now()).strftime("%Y-%m-%d_%H%M%S")
+    parts: list[str] = []
+    if scope in ("single", "multi", "pick"):
+        for t in targets or []:
+            label = (t.get("name") or t.get("code") or "").strip()
+            if label:
+                parts.append(label)
+    elif scope == "sector":
+        for t in targets or []:
+            label = (t.get("sector") or t.get("name") or "").strip()
+            if label:
+                parts.append(label)
+    elif scope == "market":
+        parts.append("market")
+    slug = _safe_filename_part("+".join(parts) if parts else "unknown")
+    return f"{ts}_{scope}_{slug}.md"
+
